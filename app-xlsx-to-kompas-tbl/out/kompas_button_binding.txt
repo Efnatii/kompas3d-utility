@@ -1,0 +1,13 @@
+﻿KOMPAS-3D button binding (external command)
+-------------------------------------------
+Program : C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\bin\app-xlsx-to-kompas-tbl.exe
+Arguments: 
+Name    : Excel -> TBL
+Icon    : C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\assets\app.ico
+
+Steps in KOMPAS:
+1) Open KOMPAS-3D.
+2) Open UI customization and add an external command.
+3) Paste Program and Arguments from this file.
+4) If KOMPAS allows custom icon, set icon path to: C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\assets\app.ico
+5) Save button on toolbar.
