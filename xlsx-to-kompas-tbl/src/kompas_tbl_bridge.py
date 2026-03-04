@@ -3,11 +3,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import win32com.client
-
 
 EXIT_OK = 0
 EXIT_USAGE = 1
+EXIT_PYWIN32_MISSING = 10
 EXIT_KOMPAS_ERROR = 20
 EXIT_NO_ACTIVE_DOC = 30
 EXIT_NO_ACTIVE_VIEW = 31
@@ -22,6 +21,18 @@ KS_TTL_NOT_CREATE = 0
 
 def log(message: str) -> None:
     print(message)
+
+
+def import_win32com_client():
+    try:
+        import win32com.client as client  # type: ignore
+    except Exception as exc:
+        log(
+            "ERROR: Python module win32com.client is unavailable. "
+            f"Install pywin32 for this interpreter. Details: {exc}"
+        )
+        return None
+    return client
 
 
 def read_matrix_tsv(tsv_path: Path, row_count: int, col_count: int) -> list[list[str]]:
@@ -40,11 +51,11 @@ def read_matrix_tsv(tsv_path: Path, row_count: int, col_count: int) -> list[list
     return matrix[:row_count]
 
 
-def connect_kompas():
+def connect_kompas(win32_client):
     try:
-        kompas5 = win32com.client.GetObject(Class="Kompas.Application.5")
+        kompas5 = win32_client.GetObject(Class="Kompas.Application.5")
     except Exception:
-        kompas5 = win32com.client.Dispatch("Kompas.Application.5")
+        kompas5 = win32_client.Dispatch("Kompas.Application.5")
 
     kompas5.Visible = True
     kompas7 = kompas5.ksGetApplication7
@@ -91,8 +102,12 @@ def main() -> int:
     log(f"INFO: Размер ячейки (мм): width={col_width_mm}, height={row_height_mm}")
     matrix = read_matrix_tsv(matrix_path, row_count, col_count)
 
+    win32_client = import_win32com_client()
+    if win32_client is None:
+        return EXIT_PYWIN32_MISSING
+
     try:
-        _, kompas7 = connect_kompas()
+        _, kompas7 = connect_kompas(win32_client)
         log("INFO: Python bridge подключился к КОМПАС.")
     except Exception as exc:
         log(f"ERROR: Python bridge не подключился к КОМПАС: {exc}")
@@ -104,7 +119,7 @@ def main() -> int:
         return EXIT_NO_ACTIVE_DOC
 
     try:
-        doc2d = win32com.client.CastTo(doc, "IKompasDocument2D")
+        doc2d = win32_client.CastTo(doc, "IKompasDocument2D")
     except Exception as exc:
         log(f"ERROR: Активный документ нельзя привести к IKompasDocument2D: {exc}")
         return EXIT_NO_ACTIVE_DOC
@@ -120,7 +135,7 @@ def main() -> int:
         return EXIT_NO_ACTIVE_VIEW
 
     try:
-        symbols_container = win32com.client.CastTo(active_view, "ISymbols2DContainer")
+        symbols_container = win32_client.CastTo(active_view, "ISymbols2DContainer")
         drawing_tables = symbols_container.DrawingTables
     except Exception as exc:
         log(f"ERROR: Не удалось получить ISymbols2DContainer.DrawingTables: {exc}")
@@ -139,7 +154,7 @@ def main() -> int:
         return EXIT_TABLE_CREATE
 
     try:
-        table = win32com.client.CastTo(drawing_table, "ITable")
+        table = win32_client.CastTo(drawing_table, "ITable")
     except Exception as exc:
         log(f"ERROR: Не удалось привести IDrawingTable к ITable: {exc}")
         return EXIT_TABLE_CREATE
@@ -152,7 +167,7 @@ def main() -> int:
                 return EXIT_TABLE_FILL
 
             try:
-                text_obj = win32com.client.CastTo(cell.Text, "IText")
+                text_obj = win32_client.CastTo(cell.Text, "IText")
                 text_obj.Str = matrix[r][c]
             except Exception as exc:
                 log(f"ERROR: Ошибка записи ячейки ({r + 1}, {c + 1}): {exc}")

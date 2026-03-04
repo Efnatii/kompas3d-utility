@@ -40,6 +40,34 @@ public static class Win32DragDrop {
     [DllImport("shell32.dll")]
     public static extern void DragFinish(IntPtr hDrop);
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
+    private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
+    private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    public const int GWLP_HWNDPARENT = -8;
+
+    public static IntPtr GetOwnerWindow(IntPtr hWnd) {
+        if (IntPtr.Size == 8) {
+            return GetWindowLongPtr64(hWnd, GWLP_HWNDPARENT);
+        }
+        return new IntPtr(GetWindowLong32(hWnd, GWLP_HWNDPARENT));
+    }
+
+    public static IntPtr SetOwnerWindow(IntPtr hWnd, IntPtr ownerHwnd) {
+        if (IntPtr.Size == 8) {
+            return SetWindowLongPtr64(hWnd, GWLP_HWNDPARENT, ownerHwnd);
+        }
+        return new IntPtr(SetWindowLong32(hWnd, GWLP_HWNDPARENT, ownerHwnd.ToInt32()));
+    }
+
     public static string[] ExtractDroppedFiles(IntPtr hDrop) {
         uint count = DragQueryFile(hDrop, 0xFFFFFFFF, null, 0);
         var files = new List<string>();
@@ -92,6 +120,16 @@ $script:LayoutConfigPath = Join-Path $script:RepoRoot "xlsx-to-kompas-tbl\config
 $script:SettingsPath = Join-Path $script:AppRoot "config\app_settings.json"
 $script:AppIconPath = Join-Path $script:AppRoot "assets\app.ico"
 $script:LastKompasDocResolveReason = ""
+$script:IsUpdatingOutputText = $false
+$script:OutputAutoSyncEnabled = $true
+$script:OutputSyncTimer = $null
+$script:LastOwnerBindingState = ""
+$script:LastLayoutAuditSignature = ""
+$script:LastSuccessfulExportPath = ""
+$script:LastAppliedOutputDir = ""
+$script:PendingOutputDir = ""
+$script:PendingOutputDirHits = 0
+$script:OutputSyncStabilizeHits = 2
 
 function Add-Log {
     param(
@@ -640,15 +678,233 @@ function Get-RunningKompasObject {
     return $null
 }
 
+function Get-KompasMainWindowHandle {
+    $kompasProcess = Get-Process -Name KOMPAS -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Sort-Object StartTime -Descending |
+        Select-Object -First 1
+
+    if ($null -eq $kompasProcess) {
+        return [IntPtr]::Zero
+    }
+
+    try {
+        return [IntPtr]$kompasProcess.MainWindowHandle
+    }
+    catch {
+        return [IntPtr]::Zero
+    }
+}
+
+function Sync-FormOwnerToKompas {
+    param(
+        [System.Windows.Forms.Form]$Form,
+        [System.Windows.Forms.TextBox]$LogBox,
+        [switch]$Silent
+    )
+
+    if ($null -eq $Form) {
+        return
+    }
+
+    if (-not $Form.IsHandleCreated) {
+        $null = $Form.Handle
+    }
+
+    if (-not $Form.IsHandleCreated) {
+        return
+    }
+
+    try {
+        $targetOwner = Get-KompasMainWindowHandle
+        $currentOwner = [Win32DragDrop]::GetOwnerWindow($Form.Handle)
+
+        if ($currentOwner -eq $targetOwner) {
+            return
+        }
+
+        [void][Win32DragDrop]::SetOwnerWindow($Form.Handle, $targetOwner)
+        $appliedOwner = [Win32DragDrop]::GetOwnerWindow($Form.Handle)
+
+        if ($appliedOwner -ne $targetOwner) {
+            if (-not $Silent) {
+                Add-Log -Box $LogBox -Message "WARN: Не удалось обновить привязку окна к КОМПАС."
+            }
+            return
+        }
+
+        $state = ""
+        if ($targetOwner -eq [IntPtr]::Zero) {
+            $state = "DETACHED"
+        }
+        else {
+            $state = "ATTACHED"
+        }
+
+        if (-not $Silent -and $script:LastOwnerBindingState -ne $state) {
+            if ($state -eq "ATTACHED") {
+                Add-Log -Box $LogBox -Message "INFO: Окно утилиты закреплено над окном КОМПАС (без глобального TopMost)."
+            }
+            else {
+                Add-Log -Box $LogBox -Message "INFO: Привязка окна к КОМПАС снята (КОМПАС не найден)."
+            }
+        }
+        $script:LastOwnerBindingState = $state
+    }
+    catch {
+        if (-not $Silent) {
+            Add-Log -Box $LogBox -Message "WARN: Ошибка привязки окна к КОМПАС: $($_.Exception.Message)"
+        }
+    }
+}
+
+function Convert-CommandOutputToLines {
+    param(
+        [object[]]$OutputItems
+    )
+
+    $lines = New-Object System.Collections.ArrayList
+
+    foreach ($item in @($OutputItems)) {
+        if ($null -eq $item) {
+            continue
+        }
+
+        $rawText = $null
+
+        if ($item -is [System.Management.Automation.ErrorRecord]) {
+            $targetText = Convert-ToNonEmptyString -Value $item.TargetObject
+            if (-not [string]::IsNullOrWhiteSpace($targetText)) {
+                $rawText = $targetText
+            }
+            else {
+                $errorText = Convert-ToNonEmptyString -Value $item.Exception.Message
+                if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+                    $rawText = $errorText
+                }
+                else {
+                    $rawText = [string]$item
+                }
+            }
+        }
+        else {
+            $rawText = [string]$item
+        }
+
+        if ([string]::IsNullOrWhiteSpace($rawText)) {
+            continue
+        }
+
+        foreach ($segment in ($rawText -split "(`r`n|`n|`r)")) {
+            $line = Convert-ToNonEmptyString -Value $segment
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                [void]$lines.Add($line)
+            }
+        }
+    }
+
+    return ,$lines.ToArray()
+}
+
 function Resolve-PythonExecutable {
+    $candidates = New-Object System.Collections.ArrayList
+
     foreach ($candidate in @("python", "py")) {
-        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
+        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($null -ne $cmd) {
-            return $cmd.Source
+            [void]$candidates.Add($cmd.Source)
+        }
+    }
+
+    foreach ($venvPath in @(
+            (Join-Path $script:RepoRoot ".venv\Scripts\python.exe"),
+            (Join-Path $script:AppRoot ".venv\Scripts\python.exe")
+        )) {
+        [void]$candidates.Add($venvPath)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $userPythonRoot = Join-Path $env:USERPROFILE "AppData\Local\Programs\Python"
+        if (Test-Path -LiteralPath $userPythonRoot -PathType Container) {
+            $pythonDirs = Get-ChildItem -LiteralPath $userPythonRoot -Directory -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending
+            foreach ($pythonDir in $pythonDirs) {
+                [void]$candidates.Add((Join-Path $pythonDir.FullName "python.exe"))
+            }
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        [void]$candidates.Add((Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\python.exe"))
+    }
+
+    $seen = @{}
+    foreach ($candidate in @($candidates)) {
+        $candidateText = Convert-ToNonEmptyString -Value $candidate
+        if ([string]::IsNullOrWhiteSpace($candidateText)) {
+            continue
+        }
+
+        $key = $candidateText.ToLowerInvariant()
+        if ($seen.ContainsKey($key)) {
+            continue
+        }
+        $seen[$key] = $true
+
+        if ($candidateText -eq "python" -or $candidateText -eq "py") {
+            return $candidateText
+        }
+
+        if (Test-Path -LiteralPath $candidateText -PathType Leaf) {
+            return $candidateText
         }
     }
 
     return $null
+}
+
+function Test-PythonWin32ComAvailable {
+    param(
+        [string]$PythonExecutable
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PythonExecutable)) {
+        return [pscustomobject]@{
+            Available = $false
+            Reason = "Python executable is not specified."
+        }
+    }
+
+    try {
+        $probeOutput = @(
+            & $PythonExecutable -c "import win32com.client; print('PYWIN32_OK')" 2>&1
+        )
+        $probeExit = $LASTEXITCODE
+    }
+    catch {
+        return [pscustomobject]@{
+            Available = $false
+            Reason = "Python probe execution failed: $($_.Exception.Message)"
+        }
+    }
+
+    $probeLines = Convert-CommandOutputToLines -OutputItems $probeOutput
+    if ($probeExit -eq 0) {
+        return [pscustomobject]@{
+            Available = $true
+            Reason = ""
+        }
+    }
+
+    $reason = ($probeLines -join " | ").Trim()
+    if ([string]::IsNullOrWhiteSpace($reason)) {
+        $reason = "python exited with code $probeExit"
+    }
+
+    return [pscustomobject]@{
+        Available = $false
+        Reason = $reason
+    }
 }
 
 function Get-KompasActiveDocumentDirectoryViaPython {
@@ -664,7 +920,23 @@ function Get-KompasActiveDocumentDirectoryViaPython {
     if ([string]::IsNullOrWhiteSpace($pythonExe)) {
         return [pscustomobject]@{
             Directory = $null
-            Reason = "Python executable is not available."
+            Reason = "Python executable is not available. Install Python 64-bit and ensure it is in PATH."
+        }
+    }
+
+    $pywin32Probe = Test-PythonWin32ComAvailable -PythonExecutable $pythonExe
+    if ($null -eq $pywin32Probe -or -not $pywin32Probe.Available) {
+        $probeReason = ""
+        if ($null -ne $pywin32Probe) {
+            $probeReason = Convert-ToNonEmptyString -Value $pywin32Probe.Reason
+        }
+        if ([string]::IsNullOrWhiteSpace($probeReason)) {
+            $probeReason = "win32com.client import check failed."
+        }
+
+        return [pscustomobject]@{
+            Directory = $null
+            Reason = "Python win32com bridge is unavailable: $probeReason"
         }
     }
 
@@ -679,6 +951,7 @@ function Get-KompasActiveDocumentDirectoryViaPython {
         }
     }
 
+    $outputLines = Convert-CommandOutputToLines -OutputItems $outputLines
     $outputText = ($outputLines | ForEach-Object { [string]$_ }) -join "`n"
     $outputText = $outputText.Trim()
     $jsonPayload = $null
@@ -900,6 +1173,121 @@ function Build-DefaultOutputPath {
     }
 
     return (Join-Path $dir ($baseName + ".tbl"))
+}
+
+function Normalize-PathForCompare {
+    param(
+        [string]$PathValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return ""
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath($PathValue).Trim().TrimEnd('\').ToLowerInvariant()
+    }
+    catch {
+        return $PathValue.Trim().TrimEnd('\').ToLowerInvariant()
+    }
+}
+
+function Test-PathsEqual {
+    param(
+        [string]$LeftPath,
+        [string]$RightPath
+    )
+
+    $leftNorm = Normalize-PathForCompare -PathValue $LeftPath
+    $rightNorm = Normalize-PathForCompare -PathValue $RightPath
+    return ($leftNorm -eq $rightNorm)
+}
+
+function Set-OutputPathValue {
+    param(
+        [hashtable]$Ctl,
+        [string]$OutputPath,
+        [bool]$EnableAutoSync = $true
+    )
+
+    if ($null -eq $Ctl -or $null -eq $Ctl.output) {
+        return
+    }
+
+    $script:IsUpdatingOutputText = $true
+    try {
+        $Ctl.output.Text = $OutputPath
+    }
+    finally {
+        $script:IsUpdatingOutputText = $false
+    }
+
+    $script:OutputAutoSyncEnabled = $EnableAutoSync
+}
+
+function Sync-OutputPathWithKompasDocument {
+    param(
+        [hashtable]$Ctl,
+        [System.Windows.Forms.TextBox]$LogBox,
+        [switch]$Force,
+        [switch]$Silent
+    )
+
+    if ($null -eq $Ctl -or $null -eq $Ctl.output -or $null -eq $Ctl.input) {
+        return
+    }
+
+    if (-not $Force -and -not $script:OutputAutoSyncEnabled) {
+        return
+    }
+
+    $inputPath = Convert-ToNonEmptyString -Value $Ctl.input.Text
+    if ([string]::IsNullOrWhiteSpace($inputPath)) {
+        $inputPath = $script:DefaultInput
+    }
+
+    $preferredDir = Get-PreferredOutputDirectory
+    $preferredDirNorm = Normalize-PathForCompare -PathValue $preferredDir
+    if ([string]::IsNullOrWhiteSpace($preferredDirNorm)) {
+        return
+    }
+
+    if ($Force) {
+        $script:PendingOutputDir = $preferredDirNorm
+        $script:PendingOutputDirHits = [Math]::Max(1, [int]$script:OutputSyncStabilizeHits)
+    }
+    else {
+        if ($preferredDirNorm -ne $script:PendingOutputDir) {
+            $script:PendingOutputDir = $preferredDirNorm
+            $script:PendingOutputDirHits = 1
+            return
+        }
+
+        if ($script:PendingOutputDirHits -lt [Math]::Max(1, [int]$script:OutputSyncStabilizeHits)) {
+            $script:PendingOutputDirHits++
+            if ($script:PendingOutputDirHits -lt [Math]::Max(1, [int]$script:OutputSyncStabilizeHits)) {
+                return
+            }
+        }
+    }
+
+    $targetOutputPath = Build-DefaultOutputPath -InputPath $inputPath -OutputDirectory $preferredDir
+    $currentOutputPath = Convert-ToNonEmptyString -Value $Ctl.output.Text
+
+    if (Test-PathsEqual -LeftPath $currentOutputPath -RightPath $targetOutputPath) {
+        $script:LastAppliedOutputDir = $preferredDirNorm
+        return
+    }
+
+    Set-OutputPathValue -Ctl $Ctl -OutputPath $targetOutputPath -EnableAutoSync $true
+    $script:LastAppliedOutputDir = $preferredDirNorm
+
+    if (-not $Silent) {
+        Add-Log -Box $LogBox -Message "Папка результата обновлена по активной вкладке КОМПАС: $preferredDir"
+        if (-not [string]::IsNullOrWhiteSpace($script:LastKompasDocResolveReason)) {
+            Add-Log -Box $LogBox -Message "Диагностика пути: $script:LastKompasDocResolveReason"
+        }
+    }
 }
 
 function Is-LegacyDefaultOutputPath {
@@ -1138,7 +1526,13 @@ function Update-ModeState([hashtable]$Ctl) {
 
 function Apply-SettingsToUi([hashtable]$Settings, [hashtable]$Ctl) {
     $Ctl.input.Text = [string]$Settings.input_path
-    $Ctl.output.Text = [string]$Settings.output_path
+    $script:IsUpdatingOutputText = $true
+    try {
+        $Ctl.output.Text = [string]$Settings.output_path
+    }
+    finally {
+        $script:IsUpdatingOutputText = $false
+    }
 
     $mode = [string]$Settings.mode
     if ($mode -ne "cell" -and $mode -ne "table") { $mode = "cell" }
@@ -1186,7 +1580,8 @@ function Apply-DroppedXlsx {
     $Ctl.input.Text = $xlsxPath
 
     $preferredDir = Get-PreferredOutputDirectory
-    $Ctl.output.Text = Build-DefaultOutputPath -InputPath $xlsxPath -OutputDirectory $preferredDir
+    $defaultOutPath = Build-DefaultOutputPath -InputPath $xlsxPath -OutputDirectory $preferredDir
+    Set-OutputPathValue -Ctl $Ctl -OutputPath $defaultOutPath -EnableAutoSync $true
 
     Add-Log -Box $LogBox -Message "Перетащен XLSX: $xlsxPath"
     Add-Log -Box $LogBox -Message "Определена папка результата: $preferredDir"
@@ -1280,6 +1675,14 @@ function Save-FullSettings {
         Write-LayoutConfig -Path $script:LayoutConfigPath -Layout $settings
         Apply-SettingsToUi -Settings $settings -Ctl $Ctl
         Add-Log -Box $LogBox -Message "Параметры сохранены (профиль + layout config)."
+        if (-not $Silent) {
+            Add-Log -Box $LogBox -Message ("INFO: Layout: mode={0}; cell={1}x{2} мм; table={3}x{4} мм" -f `
+                $settings.mode, `
+                $settings.cell_width_mm, `
+                $settings.cell_height_mm, `
+                $settings.table_width_mm, `
+                $settings.table_height_mm)
+        }
         return $settings
     }
     catch {
@@ -1297,17 +1700,17 @@ function Invoke-Export {
 
     if (-not (Test-Path -LiteralPath $script:ExporterVbs)) {
         Add-Log -Box $LogBox -Message "ERROR: Exporter missing: $script:ExporterVbs"
-        return
+        return $false
     }
 
     if (-not (Test-Path -LiteralPath $Settings.input_path)) {
         Add-Log -Box $LogBox -Message "ERROR: Input file missing: $($Settings.input_path)"
-        return
+        return $false
     }
 
     if (-not (Test-Path -LiteralPath $script:LayoutConfigPath)) {
         Add-Log -Box $LogBox -Message "ERROR: Auto layout config missing: $script:LayoutConfigPath"
-        return
+        return $false
     }
 
     $outDir = Split-Path -Parent $Settings.output_path
@@ -1319,14 +1722,20 @@ function Invoke-Export {
     Add-Log -Box $LogBox -Message "Input: $($Settings.input_path)"
     Add-Log -Box $LogBox -Message "Output: $($Settings.output_path)"
     Add-Log -Box $LogBox -Message "Mode: $($Settings.mode)"
+    Add-Log -Box $LogBox -Message ("INFO: Геометрия layout: cell={0}x{1} мм; table={2}x{3} мм" -f `
+        $Settings.cell_width_mm, `
+        $Settings.cell_height_mm, `
+        $Settings.table_width_mm, `
+        $Settings.table_height_mm)
 
     try {
         $outputLines = @(
             & cscript.exe //nologo $script:ExporterVbs $Settings.input_path $Settings.output_path $script:LayoutConfigPath 2>&1
         )
         $exitCode = $LASTEXITCODE
+        $outputLines = Convert-CommandOutputToLines -OutputItems $outputLines
 
-        foreach ($line in ($outputLines | ForEach-Object { [string]$_ })) {
+        foreach ($line in $outputLines) {
             if (-not [string]::IsNullOrWhiteSpace($line)) {
                 Add-Log -Box $LogBox -Message $line
             }
@@ -1334,15 +1743,198 @@ function Invoke-Export {
 
         if ($exitCode -eq 0 -and (Test-Path -LiteralPath $Settings.output_path)) {
             $size = (Get-Item -LiteralPath $Settings.output_path).Length
+            $script:LastSuccessfulExportPath = $Settings.output_path
             Add-Log -Box $LogBox -Message "DONE: Экспорт завершён, размер=$size байт."
+            return $true
         }
         else {
             Add-Log -Box $LogBox -Message "ERROR: cscript returned code $exitCode."
+            return $false
         }
     }
     catch {
         Add-Log -Box $LogBox -Message "ERROR: $($_.Exception.Message)"
+        return $false
     }
+}
+
+function Invoke-InsertTblToKompasViaCom {
+    param(
+        [string]$TblPath
+    )
+
+    $messages = New-Object System.Collections.ArrayList
+    $resolvedProgId = ""
+    $runningKompas = Get-RunningKompasObject -ProgId ([ref]$resolvedProgId)
+    if ($null -eq $runningKompas) {
+        [void]$messages.Add("KOMPAS COM instance is not available in current context.")
+        return [pscustomobject]@{
+            Success  = $false
+            ExitCode = 20
+            Messages = ,$messages.ToArray()
+        }
+    }
+
+    $kompas5 = $null
+    $kompas7 = $null
+
+    if ($resolvedProgId.ToLowerInvariant().Contains(".5")) {
+        $kompas5 = $runningKompas
+        try {
+            $kompas7 = $kompas5.ksGetApplication7
+        }
+        catch {
+            $kompas7 = $null
+        }
+
+        if ($null -eq $kompas7) {
+            try {
+                $kompas7 = $kompas5.ksGetApplication7()
+            }
+            catch {
+                $kompas7 = $null
+            }
+        }
+
+        if ($null -eq $kompas7) {
+            $kompas7 = Invoke-ComObjectMethod -ComObject $kompas5 -MethodNames @("ksGetApplication7")
+        }
+    }
+    else {
+        $kompas7 = $runningKompas
+    }
+
+    if ($null -eq $kompas7) {
+        [void]$messages.Add("Unable to get IKompasAPI7 application object from COM.")
+        return [pscustomobject]@{
+            Success  = $false
+            ExitCode = 20
+            Messages = ,$messages.ToArray()
+        }
+    }
+
+    $activeDoc = Get-ComObjectProperty -ComObject $kompas7 -PropertyNames @("ActiveDocument", "CurrentDocument")
+    if ($null -eq $activeDoc) {
+        $activeDoc = Get-ComObjectProperty -ComObject $kompas5 -PropertyNames @("ActiveDocument", "CurrentDocument")
+    }
+
+    if ($null -eq $activeDoc) {
+        [void]$messages.Add("No active KOMPAS document. Open Drawing/Fragment first.")
+        return [pscustomobject]@{
+            Success  = $false
+            ExitCode = 30
+            Messages = ,$messages.ToArray()
+        }
+    }
+
+    $viewsManager = Get-ComObjectProperty -ComObject $activeDoc -PropertyNames @("ViewsAndLayersManager")
+    $views = Get-ComObjectProperty -ComObject $viewsManager -PropertyNames @("Views")
+    $activeView = Get-ComObjectProperty -ComObject $views -PropertyNames @("ActiveView")
+    if ($null -eq $activeView) {
+        $activeView = Invoke-ComObjectMethod -ComObject $views -MethodNames @("ActiveView")
+    }
+
+    if ($null -eq $activeView) {
+        [void]$messages.Add("ActiveView is not available for current document.")
+        return [pscustomobject]@{
+            Success  = $false
+            ExitCode = 31
+            Messages = ,$messages.ToArray()
+        }
+    }
+
+    $drawingTables = Get-ComObjectProperty -ComObject $activeView -PropertyNames @("DrawingTables")
+    if ($null -eq $drawingTables) {
+        $drawingTables = Invoke-ComObjectMethod -ComObject $activeView -MethodNames @("DrawingTables")
+    }
+
+    if ($null -eq $drawingTables) {
+        [void]$messages.Add("DrawingTables container is unavailable in active view.")
+        return [pscustomobject]@{
+            Success  = $false
+            ExitCode = 40
+            Messages = ,$messages.ToArray()
+        }
+    }
+
+    $beforeCount = Get-ComPositiveIntValue -ComObject $drawingTables -MemberNames @("Count")
+    $loadedTable = Invoke-ComObjectMethod -ComObject $drawingTables -MethodNames @("Load") -Arguments @($TblPath)
+    if ($null -eq $loadedTable) {
+        [void]$messages.Add("DrawingTables.Load returned null or failed.")
+        return [pscustomobject]@{
+            Success  = $false
+            ExitCode = 40
+            Messages = ,$messages.ToArray()
+        }
+    }
+
+    $xValue = Get-ComObjectProperty -ComObject $loadedTable -PropertyNames @("X")
+    $yValue = Get-ComObjectProperty -ComObject $loadedTable -PropertyNames @("Y")
+    if ($null -ne $xValue -and $null -ne $yValue) {
+        try {
+            $oldX = [double]$xValue
+            $oldY = [double]$yValue
+            $loadedTable.X = $oldX + 10.0
+            $loadedTable.Y = $oldY + 10.0
+            [void]$messages.Add("Table position shifted to avoid overlap.")
+        }
+        catch {
+        }
+    }
+
+    try {
+        $null = Invoke-ComObjectMethod -ComObject $loadedTable -MethodNames @("Update")
+    }
+    catch {
+    }
+    try {
+        $null = Invoke-ComObjectMethod -ComObject $activeView -MethodNames @("Update")
+    }
+    catch {
+    }
+
+    $afterCount = Get-ComPositiveIntValue -ComObject $drawingTables -MemberNames @("Count")
+    if ($null -ne $beforeCount -and $null -ne $afterCount) {
+        [void]$messages.Add("Tables in active view: $beforeCount -> $afterCount")
+        if ($afterCount -eq $beforeCount) {
+            [void]$messages.Add("Table count did not change after load.")
+            return [pscustomobject]@{
+                Success  = $false
+                ExitCode = 42
+                Messages = ,$messages.ToArray()
+            }
+        }
+    }
+
+    [void]$messages.Add("Table inserted via native PowerShell COM path.")
+    return [pscustomobject]@{
+        Success  = $true
+        ExitCode = 0
+        Messages = ,$messages.ToArray()
+    }
+}
+
+function Resolve-InsertTblPath {
+    param(
+        [string]$RequestedPath,
+        [System.Windows.Forms.TextBox]$LogBox
+    )
+
+    $requested = Convert-ToNonEmptyString -Value $RequestedPath
+    if (-not [string]::IsNullOrWhiteSpace($requested) -and (Test-Path -LiteralPath $requested -PathType Leaf)) {
+        return $requested
+    }
+
+    $fallback = Convert-ToNonEmptyString -Value $script:LastSuccessfulExportPath
+    if (-not [string]::IsNullOrWhiteSpace($fallback) -and (Test-Path -LiteralPath $fallback -PathType Leaf)) {
+        if (-not [string]::IsNullOrWhiteSpace($requested) -and -not (Test-PathsEqual -LeftPath $requested -RightPath $fallback)) {
+            Add-Log -Box $LogBox -Message "WARN: Текущий путь .tbl не найден, используется последний успешно экспортированный файл."
+            Add-Log -Box $LogBox -Message "INFO: Fallback .tbl: $fallback"
+        }
+        return $fallback
+    }
+
+    return $requested
 }
 
 function Invoke-InsertTblToKompas {
@@ -1351,13 +1943,14 @@ function Invoke-InsertTblToKompas {
         [System.Windows.Forms.TextBox]$LogBox
     )
 
-    if ([string]::IsNullOrWhiteSpace($TblPath)) {
+    $resolvedTblPath = Resolve-InsertTblPath -RequestedPath $TblPath -LogBox $LogBox
+    if ([string]::IsNullOrWhiteSpace($resolvedTblPath)) {
         Add-Log -Box $LogBox -Message "ERROR: Не указан путь к .tbl для вставки."
         return
     }
 
-    if (-not (Test-Path -LiteralPath $TblPath -PathType Leaf)) {
-        Add-Log -Box $LogBox -Message "ERROR: Файл .tbl для вставки не найден: $TblPath"
+    if (-not (Test-Path -LiteralPath $resolvedTblPath -PathType Leaf)) {
+        Add-Log -Box $LogBox -Message "ERROR: Файл .tbl для вставки не найден: $resolvedTblPath"
         return
     }
 
@@ -1366,22 +1959,69 @@ function Invoke-InsertTblToKompas {
         return
     }
 
-    $pythonExe = Resolve-PythonExecutable
-    if ([string]::IsNullOrWhiteSpace($pythonExe)) {
-        Add-Log -Box $LogBox -Message "ERROR: Python не найден. Невозможно выполнить вставку .tbl."
+    Add-Log -Box $LogBox -Message "Запуск вставки .tbl в активный документ КОМПАС..."
+    Add-Log -Box $LogBox -Message "Файл .tbl: $resolvedTblPath"
+
+    $comResult = $null
+    try {
+        $comResult = Invoke-InsertTblToKompasViaCom -TblPath $resolvedTblPath
+    }
+    catch {
+        $comResult = [pscustomobject]@{
+            Success  = $false
+            ExitCode = 40
+            Messages = @("PowerShell COM insert exception: $($_.Exception.Message)")
+        }
+    }
+
+    if ($null -ne $comResult -and $null -ne $comResult.Messages) {
+        foreach ($comLine in $comResult.Messages) {
+            if (-not [string]::IsNullOrWhiteSpace($comLine)) {
+                Add-Log -Box $LogBox -Message "COM: $comLine"
+            }
+        }
+    }
+
+    if ($null -ne $comResult -and $comResult.Success) {
+        Add-Log -Box $LogBox -Message "DONE: Таблица .tbl вставлена в активный документ (COM)."
         return
     }
 
-    Add-Log -Box $LogBox -Message "Запуск вставки .tbl в активный документ КОМПАС..."
-    Add-Log -Box $LogBox -Message "Файл .tbl: $TblPath"
+    if ($null -ne $comResult -and $comResult.ExitCode -eq 42) {
+        Add-Log -Box $LogBox -Message "WARN: Вставка через COM не подтверждена визуально (число таблиц не изменилось)."
+        return
+    }
+
+    Add-Log -Box $LogBox -Message "WARN: COM-вставка не сработала, переключение на Python bridge."
+
+    $pythonExe = Resolve-PythonExecutable
+    if ([string]::IsNullOrWhiteSpace($pythonExe)) {
+        Add-Log -Box $LogBox -Message "ERROR: Python не найден. Установите Python 64-bit и добавьте его в PATH."
+        return
+    }
+
+    $pywin32Probe = Test-PythonWin32ComAvailable -PythonExecutable $pythonExe
+    if ($null -eq $pywin32Probe -or -not $pywin32Probe.Available) {
+        $probeReason = ""
+        if ($null -ne $pywin32Probe) {
+            $probeReason = Convert-ToNonEmptyString -Value $pywin32Probe.Reason
+        }
+        if ([string]::IsNullOrWhiteSpace($probeReason)) {
+            $probeReason = "win32com.client import check failed."
+        }
+        Add-Log -Box $LogBox -Message "ERROR: Python bridge недоступен: $probeReason"
+        Add-Log -Box $LogBox -Message "ERROR: Установите pywin32 для используемого Python: python -m pip install pywin32"
+        return
+    }
 
     try {
         $outputLines = @(
-            & $pythonExe $script:InsertBridgePy $TblPath 2>&1
+            & $pythonExe $script:InsertBridgePy $resolvedTblPath 2>&1
         )
         $exitCode = $LASTEXITCODE
+        $outputLines = Convert-CommandOutputToLines -OutputItems $outputLines
 
-        foreach ($line in ($outputLines | ForEach-Object { [string]$_ })) {
+        foreach ($line in $outputLines) {
             if (-not [string]::IsNullOrWhiteSpace($line)) {
                 Add-Log -Box $LogBox -Message $line
             }
@@ -1425,13 +2065,248 @@ function Set-IconButton {
     }
 }
 
+function Update-CompactUiLayout {
+    if ($null -eq $tabHome -or $null -eq $tabParams -or $null -eq $tabLog) {
+        return
+    }
+
+    $homeMargin = 10
+    $rowGap = 4
+    $inputButtonWidth = 34
+    $btnX = [Math]::Max($homeMargin + 220, $tabHome.ClientSize.Width - $homeMargin - $inputButtonWidth)
+    $inputWidth = [Math]::Max(180, $btnX - $homeMargin - $rowGap)
+
+    $txtInput.Location = New-Object System.Drawing.Point($homeMargin, 26)
+    $txtInput.Size = New-Object System.Drawing.Size($inputWidth, 24)
+    $btnInput.Location = New-Object System.Drawing.Point($btnX, 25)
+
+    $txtOutput.Location = New-Object System.Drawing.Point($homeMargin, 72)
+    $txtOutput.Size = New-Object System.Drawing.Size($inputWidth, 24)
+    $btnOutput.Location = New-Object System.Drawing.Point($btnX, 71)
+
+    $actionsY = 102
+    $iconButtons = @($btnRun, $btnInsert, $btnOpenOut, $btnApply, $btnReset)
+    $iconGap = 4
+    $iconX = [Math]::Max($homeMargin, $lblActions.Right + 6)
+    foreach ($actionBtn in $iconButtons) {
+        $actionBtn.Location = New-Object System.Drawing.Point($iconX, $actionsY)
+        $iconX += ($actionBtn.Width + $iconGap)
+    }
+
+    $leftActionsRight = $iconX - $iconGap
+    $exitY = $actionsY
+    if (($btnX - 8) -lt $leftActionsRight) {
+        $exitY += 34
+    }
+    $btnExit.Location = New-Object System.Drawing.Point($btnX, $exitY)
+
+    $grpMargin = 8
+    $grpWidth = [Math]::Max(420, $tabParams.ClientSize.Width - ($grpMargin * 2))
+    $grpHeight = [Math]::Max(240, $tabParams.ClientSize.Height - ($grpMargin * 2))
+    $grp.Location = New-Object System.Drawing.Point($grpMargin, $grpMargin)
+    $grp.Size = New-Object System.Drawing.Size($grpWidth, $grpHeight)
+
+    $modeLabelX = 10
+    $modeLabelY = 24
+    $lblMode.Location = New-Object System.Drawing.Point($modeLabelX, $modeLabelY)
+
+    $modeInputX = $modeLabelX + [Math]::Max($lblMode.PreferredWidth, 48) + 8
+    $cmbMode.Location = New-Object System.Drawing.Point($modeInputX, 20)
+    $maxModeWidth = [Math]::Max(120, $grp.ClientSize.Width - $modeInputX - 12)
+    $cmbMode.Size = New-Object System.Drawing.Size([Math]::Min(180, $maxModeWidth), 24)
+
+    $fieldWidth = 56
+    $labelGap = 6
+    $pairGap = 12
+    $leftLabelWidth = [Math]::Max($lblCW.PreferredWidth, $lblTW.PreferredWidth)
+    $rightLabelWidth = [Math]::Max($lblCH.PreferredWidth, $lblTH.PreferredWidth)
+
+    $leftLabelX = 10
+    $leftInputX = $leftLabelX + $leftLabelWidth + $labelGap
+    $rightLabelX = $leftInputX + $fieldWidth + $pairGap
+    $rightInputX = $rightLabelX + $rightLabelWidth + $labelGap
+
+    $singleColumn = ($rightInputX + $fieldWidth + 10) -gt $grp.ClientSize.Width
+    if ($singleColumn) {
+        $stackLabelWidth = [Math]::Max($leftLabelWidth, $rightLabelWidth)
+        $stackLabelX = 10
+        $stackInputX = $stackLabelX + $stackLabelWidth + $labelGap
+        $rowStep = 30
+        $rowLabelStart = 58
+        $rowInputOffset = -4
+
+        $lblCW.Location = New-Object System.Drawing.Point($stackLabelX, $rowLabelStart)
+        $txtCW.Location = New-Object System.Drawing.Point($stackInputX, ($rowLabelStart + $rowInputOffset))
+        $txtCW.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $lblCH.Location = New-Object System.Drawing.Point($stackLabelX, ($rowLabelStart + $rowStep))
+        $txtCH.Location = New-Object System.Drawing.Point($stackInputX, ($rowLabelStart + $rowStep + $rowInputOffset))
+        $txtCH.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $lblTW.Location = New-Object System.Drawing.Point($stackLabelX, ($rowLabelStart + ($rowStep * 2)))
+        $txtTW.Location = New-Object System.Drawing.Point($stackInputX, ($rowLabelStart + ($rowStep * 2) + $rowInputOffset))
+        $txtTW.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $lblTH.Location = New-Object System.Drawing.Point($stackLabelX, ($rowLabelStart + ($rowStep * 3)))
+        $txtTH.Location = New-Object System.Drawing.Point($stackInputX, ($rowLabelStart + ($rowStep * 3) + $rowInputOffset))
+        $txtTH.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $metaTop = $rowLabelStart + ($rowStep * 4)
+    }
+    else {
+        $row1LabelY = 58
+        $row1InputY = 54
+        $row2LabelY = 88
+        $row2InputY = 84
+
+        $lblCW.Location = New-Object System.Drawing.Point($leftLabelX, $row1LabelY)
+        $txtCW.Location = New-Object System.Drawing.Point($leftInputX, $row1InputY)
+        $txtCW.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $lblCH.Location = New-Object System.Drawing.Point($rightLabelX, $row1LabelY)
+        $txtCH.Location = New-Object System.Drawing.Point($rightInputX, $row1InputY)
+        $txtCH.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $lblTW.Location = New-Object System.Drawing.Point($leftLabelX, $row2LabelY)
+        $txtTW.Location = New-Object System.Drawing.Point($leftInputX, $row2InputY)
+        $txtTW.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $lblTH.Location = New-Object System.Drawing.Point($rightLabelX, $row2LabelY)
+        $txtTH.Location = New-Object System.Drawing.Point($rightInputX, $row2InputY)
+        $txtTH.Size = New-Object System.Drawing.Size($fieldWidth, 24)
+
+        $metaTop = 120
+    }
+
+    $metaWidth = [Math]::Max(220, $grp.ClientSize.Width - 20)
+    $lblInfo.Location = New-Object System.Drawing.Point(10, $metaTop)
+    $lblInfo.Size = New-Object System.Drawing.Size($metaWidth, 32)
+    $lblProfile.Location = New-Object System.Drawing.Point(10, ($metaTop + 34))
+    $lblProfile.Size = New-Object System.Drawing.Size($metaWidth, 16)
+    $lblLayout.Location = New-Object System.Drawing.Point(10, ($metaTop + 34))
+    $lblLayout.Size = New-Object System.Drawing.Size($metaWidth, 16)
+
+    $txtLog.Location = New-Object System.Drawing.Point(8, 24)
+    $txtLog.Size = New-Object System.Drawing.Size(
+        [Math]::Max(220, $tabLog.ClientSize.Width - 16),
+        [Math]::Max(140, $tabLog.ClientSize.Height - 32)
+    )
+}
+
+function Get-ControlDebugName {
+    param(
+        [System.Windows.Forms.Control]$Control
+    )
+
+    if ($null -eq $Control) {
+        return "<null>"
+    }
+
+    $name = Convert-ToNonEmptyString -Value $Control.Name
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        $name = $Control.GetType().Name
+    }
+
+    $text = Convert-ToNonEmptyString -Value $Control.Text
+    if (-not [string]::IsNullOrWhiteSpace($text)) {
+        if ($text.Length -gt 24) {
+            $text = $text.Substring(0, 24) + "..."
+        }
+        return "$name('$text')"
+    }
+
+    return $name
+}
+
+function Get-LayoutOverflowIssues {
+    param(
+        [System.Windows.Forms.Control]$Parent,
+        [string]$ParentPath = "Form"
+    )
+
+    $issues = New-Object System.Collections.ArrayList
+
+    if ($null -eq $Parent) {
+        return $issues.ToArray()
+    }
+
+    $parentWidth = [Math]::Max(0, $Parent.ClientSize.Width)
+    $parentHeight = [Math]::Max(0, $Parent.ClientSize.Height)
+
+    foreach ($child in @($Parent.Controls)) {
+        if ($null -eq $child) {
+            continue
+        }
+
+        if (-not $child.Visible) {
+            continue
+        }
+
+        $childName = Get-ControlDebugName -Control $child
+        $childPath = "$ParentPath->$childName"
+
+        if ($child.Left -lt 0 -or $child.Top -lt 0 -or $child.Right -gt $parentWidth -or $child.Bottom -gt $parentHeight) {
+            [void]$issues.Add(
+                "$childPath bounds=[$($child.Left),$($child.Top),$($child.Right),$($child.Bottom)] parent=[$parentWidth,$parentHeight]"
+            )
+        }
+
+        if ($child.Controls.Count -gt 0) {
+            $nested = Get-LayoutOverflowIssues -Parent $child -ParentPath $childPath
+            foreach ($entry in $nested) {
+                [void]$issues.Add($entry)
+            }
+        }
+    }
+
+    return $issues.ToArray()
+}
+
+function Write-LayoutAuditLog {
+    param(
+        [System.Windows.Forms.TextBox]$LogBox,
+        [switch]$Force
+    )
+
+    if ($null -eq $LogBox) {
+        return
+    }
+
+    $issues = @(Get-LayoutOverflowIssues -Parent $form -ParentPath "Form")
+    $issues = @(
+        $issues |
+            ForEach-Object { [string]$_ } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    $signature = if ($issues.Count -eq 0) { "ok" } else { $issues -join "|" }
+    if (-not $Force -and $signature -eq $script:LastLayoutAuditSignature) {
+        return
+    }
+
+    $script:LastLayoutAuditSignature = $signature
+    if ($issues.Count -eq 0) {
+        Add-Log -Box $LogBox -Message "INFO: Проверка layout: все элементы в пределах окна."
+        return
+    }
+
+    Add-Log -Box $LogBox -Message "WARN: Проверка layout: найдено выходов за границы: $($issues.Count)"
+    foreach ($issue in $issues) {
+        Add-Log -Box $LogBox -Message "WARN: $issue"
+    }
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Импорт XLSX в TBL (КОМПАС)"
 $form.StartPosition = "CenterScreen"
-$form.Size = New-Object System.Drawing.Size(640, 500)
-$form.MinimumSize = New-Object System.Drawing.Size(640, 500)
+$form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::None
+$form.ClientSize = New-Object System.Drawing.Size(560, 430)
+$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedSingle
+$form.MaximizeBox = $false
+$form.MinimizeBox = $true
+$form.Padding = New-Object System.Windows.Forms.Padding(8)
 $form.ShowIcon = $true
 $form.ShowInTaskbar = $true
+$form.TopMost = $false
 Ensure-AppIconFile -IconPath $script:AppIconPath
 try {
     if (Test-Path -LiteralPath $script:AppIconPath -PathType Leaf) {
@@ -1451,43 +2326,67 @@ $toolTip.InitialDelay = 250
 $toolTip.ReshowDelay = 150
 $toolTip.ShowAlways = $true
 
+$tabMain = New-Object System.Windows.Forms.TabControl
+$tabMain.Dock = [System.Windows.Forms.DockStyle]::Fill
+$form.Controls.Add($tabMain)
+
+$tabHome = New-Object System.Windows.Forms.TabPage
+$tabHome.Text = "Главное"
+$tabHome.AutoScroll = $true
+$tabMain.Controls.Add($tabHome)
+
+$tabParams = New-Object System.Windows.Forms.TabPage
+$tabParams.Text = "Параметры"
+$tabParams.AutoScroll = $true
+$tabMain.Controls.Add($tabParams)
+
+$tabLog = New-Object System.Windows.Forms.TabPage
+$tabLog.Text = "Журнал"
+$tabLog.AutoScroll = $true
+$tabMain.Controls.Add($tabLog)
+
 $lblInput = New-Object System.Windows.Forms.Label
 $lblInput.Text = "Файл Excel (.xlsx):"
-$lblInput.Location = New-Object System.Drawing.Point(10, 8)
+$lblInput.Location = New-Object System.Drawing.Point(10, 10)
 $lblInput.AutoSize = $true
-$form.Controls.Add($lblInput)
+$tabHome.Controls.Add($lblInput)
 
 $txtInput = New-Object System.Windows.Forms.TextBox
-$txtInput.Location = New-Object System.Drawing.Point(10, 24)
-$txtInput.Size = New-Object System.Drawing.Size(560, 24)
-$form.Controls.Add($txtInput)
+$txtInput.Location = New-Object System.Drawing.Point(10, 26)
+$txtInput.Size = New-Object System.Drawing.Size(448, 24)
+$txtInput.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+$tabHome.Controls.Add($txtInput)
 
 $btnInput = New-Object System.Windows.Forms.Button
-$btnInput.Location = New-Object System.Drawing.Point(576, 23)
+$btnInput.Location = New-Object System.Drawing.Point(462, 25)
 $btnInput.Size = New-Object System.Drawing.Size(34, 26)
-$form.Controls.Add($btnInput)
+$btnInput.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+$tabHome.Controls.Add($btnInput)
 
 $lblOutput = New-Object System.Windows.Forms.Label
 $lblOutput.Text = "Файл результата (.tbl):"
-$lblOutput.Location = New-Object System.Drawing.Point(10, 52)
+$lblOutput.Location = New-Object System.Drawing.Point(10, 56)
 $lblOutput.AutoSize = $true
-$form.Controls.Add($lblOutput)
+$tabHome.Controls.Add($lblOutput)
 
 $txtOutput = New-Object System.Windows.Forms.TextBox
-$txtOutput.Location = New-Object System.Drawing.Point(10, 68)
-$txtOutput.Size = New-Object System.Drawing.Size(560, 24)
-$form.Controls.Add($txtOutput)
+$txtOutput.Location = New-Object System.Drawing.Point(10, 72)
+$txtOutput.Size = New-Object System.Drawing.Size(448, 24)
+$txtOutput.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+$tabHome.Controls.Add($txtOutput)
 
 $btnOutput = New-Object System.Windows.Forms.Button
-$btnOutput.Location = New-Object System.Drawing.Point(576, 67)
+$btnOutput.Location = New-Object System.Drawing.Point(462, 71)
 $btnOutput.Size = New-Object System.Drawing.Size(34, 26)
-$form.Controls.Add($btnOutput)
+$btnOutput.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+$tabHome.Controls.Add($btnOutput)
 
 $grp = New-Object System.Windows.Forms.GroupBox
 $grp.Text = "Параметры таблицы"
-$grp.Location = New-Object System.Drawing.Point(10, 98)
-$grp.Size = New-Object System.Drawing.Size(600, 124)
-$form.Controls.Add($grp)
+$grp.Location = New-Object System.Drawing.Point(8, 8)
+$grp.Size = New-Object System.Drawing.Size(500, 264)
+$grp.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+$tabParams.Controls.Add($grp)
 
 $lblMode = New-Object System.Windows.Forms.Label
 $lblMode.Text = "Режим:"
@@ -1506,46 +2405,46 @@ $grp.Controls.Add($cmbMode)
 
 $lblCW = New-Object System.Windows.Forms.Label
 $lblCW.Text = "W яч., мм:"
-$lblCW.Location = New-Object System.Drawing.Point(222, 24)
+$lblCW.Location = New-Object System.Drawing.Point(210, 24)
 $lblCW.AutoSize = $true
 $grp.Controls.Add($lblCW)
 
 $txtCW = New-Object System.Windows.Forms.TextBox
-$txtCW.Location = New-Object System.Drawing.Point(292, 20)
-$txtCW.Size = New-Object System.Drawing.Size(60, 24)
+$txtCW.Location = New-Object System.Drawing.Point(278, 20)
+$txtCW.Size = New-Object System.Drawing.Size(56, 24)
 $grp.Controls.Add($txtCW)
 
 $lblCH = New-Object System.Windows.Forms.Label
 $lblCH.Text = "H яч., мм:"
-$lblCH.Location = New-Object System.Drawing.Point(364, 24)
+$lblCH.Location = New-Object System.Drawing.Point(348, 24)
 $lblCH.AutoSize = $true
 $grp.Controls.Add($lblCH)
 
 $txtCH = New-Object System.Windows.Forms.TextBox
-$txtCH.Location = New-Object System.Drawing.Point(434, 20)
-$txtCH.Size = New-Object System.Drawing.Size(60, 24)
+$txtCH.Location = New-Object System.Drawing.Point(420, 20)
+$txtCH.Size = New-Object System.Drawing.Size(56, 24)
 $grp.Controls.Add($txtCH)
 
 $lblTW = New-Object System.Windows.Forms.Label
 $lblTW.Text = "W табл., мм:"
-$lblTW.Location = New-Object System.Drawing.Point(222, 54)
+$lblTW.Location = New-Object System.Drawing.Point(210, 54)
 $lblTW.AutoSize = $true
 $grp.Controls.Add($lblTW)
 
 $txtTW = New-Object System.Windows.Forms.TextBox
-$txtTW.Location = New-Object System.Drawing.Point(292, 50)
-$txtTW.Size = New-Object System.Drawing.Size(60, 24)
+$txtTW.Location = New-Object System.Drawing.Point(278, 50)
+$txtTW.Size = New-Object System.Drawing.Size(56, 24)
 $grp.Controls.Add($txtTW)
 
 $lblTH = New-Object System.Windows.Forms.Label
 $lblTH.Text = "H табл., мм:"
-$lblTH.Location = New-Object System.Drawing.Point(364, 54)
+$lblTH.Location = New-Object System.Drawing.Point(348, 54)
 $lblTH.AutoSize = $true
 $grp.Controls.Add($lblTH)
 
 $txtTH = New-Object System.Windows.Forms.TextBox
-$txtTH.Location = New-Object System.Drawing.Point(434, 50)
-$txtTH.Size = New-Object System.Drawing.Size(60, 24)
+$txtTH.Location = New-Object System.Drawing.Point(420, 50)
+$txtTH.Size = New-Object System.Drawing.Size(56, 24)
 $grp.Controls.Add($txtTH)
 
 $btnApply = New-Object System.Windows.Forms.Button
@@ -1553,59 +2452,62 @@ $btnReset = New-Object System.Windows.Forms.Button
 
 $lblInfo = New-Object System.Windows.Forms.Label
 $lblInfo.Text = "Параметры сохраняются автоматически. Наведите курсор на иконки для подсказок."
-$lblInfo.Location = New-Object System.Drawing.Point(10, 86)
-$lblInfo.AutoSize = $true
+$lblInfo.Location = New-Object System.Drawing.Point(10, 90)
+$lblInfo.AutoSize = $false
+$lblInfo.Size = New-Object System.Drawing.Size(480, 18)
+$lblInfo.AutoEllipsis = $true
 $grp.Controls.Add($lblInfo)
 
 $lblProfile = New-Object System.Windows.Forms.Label
 $lblProfile.Text = "Профиль: $script:SettingsPath"
-$lblProfile.Location = New-Object System.Drawing.Point(10, 104)
-$lblProfile.Size = New-Object System.Drawing.Size(580, 16)
+$lblProfile.Location = New-Object System.Drawing.Point(10, 110)
+$lblProfile.Size = New-Object System.Drawing.Size(480, 16)
 $lblProfile.AutoEllipsis = $true
 $lblProfile.Visible = $false
 $grp.Controls.Add($lblProfile)
 
 $lblLayout = New-Object System.Windows.Forms.Label
 $lblLayout.Text = "Автоконфиг разметки: $script:LayoutConfigPath"
-$lblLayout.Location = New-Object System.Drawing.Point(10, 104)
-$lblLayout.Size = New-Object System.Drawing.Size(580, 16)
+$lblLayout.Location = New-Object System.Drawing.Point(10, 110)
+$lblLayout.Size = New-Object System.Drawing.Size(480, 16)
 $lblLayout.AutoEllipsis = $true
 $lblLayout.Visible = $false
 $grp.Controls.Add($lblLayout)
 
 $lblActions = New-Object System.Windows.Forms.Label
 $lblActions.Text = "Действия:"
-$lblActions.Location = New-Object System.Drawing.Point(10, 228)
+$lblActions.Location = New-Object System.Drawing.Point(10, 108)
 $lblActions.AutoSize = $true
-$form.Controls.Add($lblActions)
+$tabHome.Controls.Add($lblActions)
 
 $btnRun = New-Object System.Windows.Forms.Button
-$btnRun.Location = New-Object System.Drawing.Point(78, 222)
+$btnRun.Location = New-Object System.Drawing.Point(78, 102)
 $btnRun.Size = New-Object System.Drawing.Size(34, 30)
-$form.Controls.Add($btnRun)
+$tabHome.Controls.Add($btnRun)
 
 $btnInsert = New-Object System.Windows.Forms.Button
-$btnInsert.Location = New-Object System.Drawing.Point(116, 222)
+$btnInsert.Location = New-Object System.Drawing.Point(116, 102)
 $btnInsert.Size = New-Object System.Drawing.Size(34, 30)
-$form.Controls.Add($btnInsert)
+$tabHome.Controls.Add($btnInsert)
 
 $btnOpenOut = New-Object System.Windows.Forms.Button
-$btnOpenOut.Location = New-Object System.Drawing.Point(154, 222)
+$btnOpenOut.Location = New-Object System.Drawing.Point(154, 102)
 $btnOpenOut.Size = New-Object System.Drawing.Size(34, 30)
-$form.Controls.Add($btnOpenOut)
+$tabHome.Controls.Add($btnOpenOut)
 
-$btnApply.Location = New-Object System.Drawing.Point(192, 222)
+$btnApply.Location = New-Object System.Drawing.Point(192, 102)
 $btnApply.Size = New-Object System.Drawing.Size(34, 30)
-$form.Controls.Add($btnApply)
+$tabHome.Controls.Add($btnApply)
 
-$btnReset.Location = New-Object System.Drawing.Point(230, 222)
+$btnReset.Location = New-Object System.Drawing.Point(230, 102)
 $btnReset.Size = New-Object System.Drawing.Size(34, 30)
-$form.Controls.Add($btnReset)
+$tabHome.Controls.Add($btnReset)
 
 $btnExit = New-Object System.Windows.Forms.Button
-$btnExit.Location = New-Object System.Drawing.Point(576, 222)
+$btnExit.Location = New-Object System.Drawing.Point(462, 102)
 $btnExit.Size = New-Object System.Drawing.Size(34, 30)
-$form.Controls.Add($btnExit)
+$btnExit.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+$tabHome.Controls.Add($btnExit)
 
 Set-IconButton -Button $btnInput -Icon ([System.Drawing.SystemIcons]::Asterisk) -ToolTip $toolTip -TipText "Выбрать входной файл Excel (.xlsx)" -FallbackText "📥"
 Set-IconButton -Button $btnOutput -Icon ([System.Drawing.SystemIcons]::Question) -ToolTip $toolTip -TipText "Выбрать путь выходного файла (.tbl)" -FallbackText "💾"
@@ -1618,17 +2520,18 @@ Set-IconButton -Button $btnExit -Icon ([System.Drawing.SystemIcons]::Error) -Too
 
 $lblLog = New-Object System.Windows.Forms.Label
 $lblLog.Text = "Журнал:"
-$lblLog.Location = New-Object System.Drawing.Point(10, 258)
+$lblLog.Location = New-Object System.Drawing.Point(8, 8)
 $lblLog.AutoSize = $true
-$form.Controls.Add($lblLog)
+$tabLog.Controls.Add($lblLog)
 
 $txtLog = New-Object System.Windows.Forms.TextBox
-$txtLog.Location = New-Object System.Drawing.Point(10, 274)
-$txtLog.Size = New-Object System.Drawing.Size(600, 176)
+$txtLog.Location = New-Object System.Drawing.Point(8, 24)
+$txtLog.Size = New-Object System.Drawing.Size(500, 248)
 $txtLog.Multiline = $true
 $txtLog.ScrollBars = "Vertical"
 $txtLog.ReadOnly = $true
-$form.Controls.Add($txtLog)
+$txtLog.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+$tabLog.Controls.Add($txtLog)
 
 $controls = @{
     input = $txtInput
@@ -1640,9 +2543,46 @@ $controls = @{
     tableH = $txtTH
 }
 
+Update-CompactUiLayout
+
+$tabMain.Add_SelectedIndexChanged({
+    Update-CompactUiLayout
+    Write-LayoutAuditLog -LogBox $txtLog
+})
+$tabHome.Add_Resize({
+    Update-CompactUiLayout
+    Write-LayoutAuditLog -LogBox $txtLog
+})
+$tabParams.Add_Resize({
+    Update-CompactUiLayout
+    Write-LayoutAuditLog -LogBox $txtLog
+})
+$tabLog.Add_Resize({
+    Update-CompactUiLayout
+    Write-LayoutAuditLog -LogBox $txtLog
+})
+$grp.Add_Resize({
+    Update-CompactUiLayout
+    Write-LayoutAuditLog -LogBox $txtLog
+})
+$form.Add_ClientSizeChanged({
+    Update-CompactUiLayout
+    Write-LayoutAuditLog -LogBox $txtLog
+})
+
 Register-XlsxDropTargets -RootControl $form -Ctl $controls -LogBox $txtLog
 
 $cmbMode.Add_SelectedIndexChanged({ Update-ModeState -Ctl $controls })
+$txtOutput.Add_TextChanged({
+    if ($script:IsUpdatingOutputText) {
+        return
+    }
+
+    if ($script:OutputAutoSyncEnabled) {
+        $script:OutputAutoSyncEnabled = $false
+        Add-Log -Box $txtLog -Message "INFO: Автопривязка пути результата отключена (путь изменён вручную)."
+    }
+})
 
 $btnInput.Add_Click({
     $dialog = New-Object System.Windows.Forms.OpenFileDialog
@@ -1651,9 +2591,11 @@ $btnInput.Add_Click({
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $txtInput.Text = $dialog.FileName
         $preferredDir = Get-PreferredOutputDirectory
-        $txtOutput.Text = Build-DefaultOutputPath -InputPath $dialog.FileName -OutputDirectory $preferredDir
+        $defaultOutPath = Build-DefaultOutputPath -InputPath $dialog.FileName -OutputDirectory $preferredDir
+        Set-OutputPathValue -Ctl $controls -OutputPath $defaultOutPath -EnableAutoSync $true
         Add-Log -Box $txtLog -Message "Выбран входной файл: $($dialog.FileName)"
         Add-Log -Box $txtLog -Message "Определена папка результата: $preferredDir"
+        Add-Log -Box $txtLog -Message "INFO: Автопривязка пути результата включена."
         if (-not [string]::IsNullOrWhiteSpace($script:LastKompasDocResolveReason)) {
             Add-Log -Box $txtLog -Message "Диагностика пути: $script:LastKompasDocResolveReason"
         }
@@ -1665,7 +2607,8 @@ $btnOutput.Add_Click({
     $dialog.Filter = "Таблица КОМПАС (*.tbl)|*.tbl|Все файлы (*.*)|*.*"
     $dialog.FileName = $txtOutput.Text
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $txtOutput.Text = $dialog.FileName
+        Set-OutputPathValue -Ctl $controls -OutputPath $dialog.FileName -EnableAutoSync $false
+        Add-Log -Box $txtLog -Message "INFO: Задан пользовательский путь результата (автопривязка отключена)."
     }
 })
 
@@ -1679,18 +2622,31 @@ $btnApply.Add_Click({
 $btnReset.Add_Click({
     $defaults = Get-DefaultSettings
     Apply-SettingsToUi -Settings $defaults -Ctl $controls
+    $script:OutputAutoSyncEnabled = $true
+    Sync-OutputPathWithKompasDocument -Ctl $controls -LogBox $txtLog -Force -Silent
     Add-Log -Box $txtLog -Message "Параметры интерфейса сброшены к значениям по умолчанию."
+    Add-Log -Box $txtLog -Message "INFO: Автопривязка пути результата включена."
 })
 
 $btnRun.Add_Click({
     $saved = Save-FullSettings -Ctl $controls -LogBox $txtLog
     if ($null -eq $saved) { return }
-    Invoke-Export -Settings $saved -LogBox $txtLog
+    [void](Invoke-Export -Settings $saved -LogBox $txtLog)
 })
 
 $btnInsert.Add_Click({
     $saved = Save-FullSettings -Ctl $controls -LogBox $txtLog
     if ($null -eq $saved) { return }
+    Add-Log -Box $txtLog -Message "INFO: Перед вставкой выполняется пересборка .tbl по текущим параметрам."
+    $exportOk = Invoke-Export -Settings $saved -LogBox $txtLog
+    if (-not $exportOk) {
+        Add-Log -Box $txtLog -Message "ERROR: Вставка отменена: экспорт .tbl завершился ошибкой."
+        return
+    }
+    if (-not (Test-Path -LiteralPath $saved.output_path -PathType Leaf)) {
+        Add-Log -Box $txtLog -Message "ERROR: После экспорта файл .tbl не найден: $($saved.output_path)"
+        return
+    }
     Invoke-InsertTblToKompas -TblPath $saved.output_path -LogBox $txtLog
 })
 
@@ -1703,7 +2659,23 @@ $btnOpenOut.Add_Click({
 
 $btnExit.Add_Click({ $form.Close() })
 
+$form.Add_Shown({
+    Update-CompactUiLayout
+    Sync-FormOwnerToKompas -Form $form -LogBox $txtLog
+    Write-LayoutAuditLog -LogBox $txtLog -Force
+})
+
 $form.Add_FormClosing({
+    if ($null -ne $script:OutputSyncTimer) {
+        try {
+            $script:OutputSyncTimer.Stop()
+            $script:OutputSyncTimer.Dispose()
+        }
+        catch {
+        }
+        $script:OutputSyncTimer = $null
+    }
+
     if ($null -ne $script:DropWatcher) {
         try { $script:DropWatcher.Dispose() } catch {}
         $script:DropWatcher = $null
@@ -1728,6 +2700,13 @@ $initial = Read-AppSettings -Path $script:SettingsPath
 $preferredOutDir = Get-PreferredOutputDirectory
 $initial.output_path = Build-DefaultOutputPath -InputPath $initial.input_path -OutputDirectory $preferredOutDir
 Apply-SettingsToUi -Settings $initial -Ctl $controls
+$script:OutputAutoSyncEnabled = $true
+$script:LastAppliedOutputDir = Normalize-PathForCompare -PathValue $preferredOutDir
+$script:PendingOutputDir = $script:LastAppliedOutputDir
+$script:PendingOutputDirHits = [Math]::Max(1, [int]$script:OutputSyncStabilizeHits)
+if (-not [string]::IsNullOrWhiteSpace($initial.output_path) -and (Test-Path -LiteralPath $initial.output_path -PathType Leaf)) {
+    $script:LastSuccessfulExportPath = $initial.output_path
+}
 Add-Log -Box $txtLog -Message "Режим полных настроек включён. ini-файл генерируется автоматически."
 Add-Log -Box $txtLog -Message "Папка результата по умолчанию: $preferredOutDir"
 if (-not [string]::IsNullOrWhiteSpace($script:LastKompasDocResolveReason)) {
@@ -1740,7 +2719,19 @@ if (Test-IsElevated) {
     Add-Log -Box $txtLog -Message "WARN: Если перетаскивание не работает, запустите приложение и Explorer с одинаковыми правами."
 }
 
-[void]$form.ShowDialog()
+$script:OutputSyncCtlRef = $controls
+$script:OutputSyncLogRef = $txtLog
+$script:OutputSyncTimer = New-Object System.Windows.Forms.Timer
+$script:OutputSyncTimer.Interval = 2000
+$script:OutputSyncTimer.Add_Tick({
+    Sync-FormOwnerToKompas -Form $form -LogBox $script:OutputSyncLogRef -Silent
+    Sync-OutputPathWithKompasDocument -Ctl $script:OutputSyncCtlRef -LogBox $script:OutputSyncLogRef -Silent
+})
+$script:OutputSyncTimer.Start()
+Add-Log -Box $txtLog -Message "INFO: Автопривязка пути результата к активной вкладке КОМПАС включена."
+Sync-FormOwnerToKompas -Form $form -LogBox $txtLog
+
+[System.Windows.Forms.Application]::Run($form)
 
 
 

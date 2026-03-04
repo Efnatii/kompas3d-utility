@@ -3,12 +3,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import win32com.client
-
 
 EXIT_OK = 0
 EXIT_USAGE = 1
 EXIT_INPUT_NOT_FOUND = 2
+EXIT_PYWIN32_MISSING = 10
 EXIT_KOMPAS_ERROR = 20
 EXIT_NO_ACTIVE_DOC = 30
 EXIT_NO_ACTIVE_VIEW = 31
@@ -20,15 +19,31 @@ def log(message: str) -> None:
     print(message)
 
 
-def connect_kompas():
+def _import_win32com_client():
     try:
-        kompas5 = win32com.client.GetObject(Class="Kompas.Application.5")
+        import win32com.client as client  # type: ignore
+    except Exception as exc:
+        log(
+            "ERROR: Python module win32com.client is unavailable. "
+            f"Install pywin32 for this interpreter. Details: {exc}"
+        )
+        return None
+    return client
+
+
+def connect_kompas():
+    win32_client = _import_win32com_client()
+    if win32_client is None:
+        return None
+
+    try:
+        kompas5 = win32_client.GetObject(Class="Kompas.Application.5")
     except Exception:
-        kompas5 = win32com.client.Dispatch("Kompas.Application.5")
+        kompas5 = win32_client.Dispatch("Kompas.Application.5")
 
     kompas5.Visible = True
     kompas7 = kompas5.ksGetApplication7
-    return kompas5, kompas7
+    return kompas5, kompas7, win32_client
 
 
 def main() -> int:
@@ -42,9 +57,16 @@ def main() -> int:
         return EXIT_INPUT_NOT_FOUND
 
     try:
-        _, kompas7 = connect_kompas()
+        connected = connect_kompas()
+        if connected is None:
+            return EXIT_PYWIN32_MISSING
+        _, kompas7, win32_client = connected
     except Exception as exc:
         log(f"ERROR: failed to connect to KOMPAS COM: {exc}")
+        return EXIT_KOMPAS_ERROR
+
+    if kompas7 is None:
+        log("ERROR: failed to get IKompasAPI7 application object from KOMPAS.")
         return EXIT_KOMPAS_ERROR
 
     doc = getattr(kompas7, "ActiveDocument", None)
@@ -53,7 +75,7 @@ def main() -> int:
         return EXIT_NO_ACTIVE_DOC
 
     try:
-        doc2d = win32com.client.CastTo(doc, "IKompasDocument2D")
+        doc2d = win32_client.CastTo(doc, "IKompasDocument2D")
     except Exception as exc:
         log(f"ERROR: active document is not 2D (IKompasDocument2D): {exc}")
         return EXIT_NO_ACTIVE_DOC
@@ -76,7 +98,7 @@ def main() -> int:
         return EXIT_NO_ACTIVE_VIEW
 
     try:
-        symbols_container = win32com.client.CastTo(active_view, "ISymbols2DContainer")
+        symbols_container = win32_client.CastTo(active_view, "ISymbols2DContainer")
         drawing_tables = symbols_container.DrawingTables
     except Exception as exc:
         log(f"ERROR: failed to access DrawingTables: {exc}")

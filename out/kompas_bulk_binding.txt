@@ -1,0 +1,16 @@
+KOMPAS-3D bulk external-command binding
+---------------------------------------
+Generated : 2026-03-04 21:31:24
+Repo root : C:\__MY_PROJECTS__\git\kompas3d-utility
+Apps found: 1
+Apps ready: 1
+
+[1] app-xlsx-to-kompas-tbl
+Name      : Xlsx To Kompas Tbl
+Program   : C:\__MY_PROJECTS__\git\kompas3d-utility\app-xlsx-to-kompas-tbl\bin\app-xlsx-to-kompas-tbl.exe
+Arguments : 
+Icon      : C:\__MY_PROJECTS__\git\kompas3d-utility\app-xlsx-to-kompas-tbl\assets\app.ico
+Status    : READY
+Source    : bin/<app>.exe
+App file  : C:\__MY_PROJECTS__\git\kompas3d-utility\app-xlsx-to-kompas-tbl\out\kompas_button_binding.txt
+

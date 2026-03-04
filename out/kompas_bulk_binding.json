@@ -1,0 +1,12 @@
+{
+  "AppFolder": "app-xlsx-to-kompas-tbl",
+  "AppPath": "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\app-xlsx-to-kompas-tbl",
+  "Name": "Xlsx To Kompas Tbl",
+  "Program": "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\app-xlsx-to-kompas-tbl\\bin\\app-xlsx-to-kompas-tbl.exe",
+  "Arguments": "",
+  "Icon": "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\app-xlsx-to-kompas-tbl\\assets\\app.ico",
+  "Status": "READY",
+  "LauncherSource": "bin/<app>.exe",
+  "BindingFile": "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\app-xlsx-to-kompas-tbl\\out\\kompas_button_binding.txt",
+  "Note": ""
+}

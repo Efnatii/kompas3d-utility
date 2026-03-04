@@ -4,8 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-import win32com.client
-
 
 def _emit_result(ok: bool, directory: str | None, reason: str, code: int) -> int:
     payload = {
@@ -16,6 +14,14 @@ def _emit_result(ok: bool, directory: str | None, reason: str, code: int) -> int
     # ASCII-safe transport for PowerShell: no locale/codepage dependency.
     print(json.dumps(payload, ensure_ascii=True))
     return code
+
+
+def _import_win32com_client():
+    try:
+        import win32com.client as client  # type: ignore
+    except Exception as exc:
+        return None, exc
+    return client, None
 
 
 def _split_document_path(path_value: str) -> str | None:
@@ -92,10 +98,17 @@ def _resolve_from_document(doc) -> str | None:
 
 
 def _resolve_active_kompas_directory() -> tuple[str | None, str]:
+    win32_client, import_error = _import_win32com_client()
+    if win32_client is None:
+        return None, (
+            "Python module win32com.client is unavailable. "
+            f"Install pywin32 for this interpreter. Details: {import_error}"
+        )
+
     app5 = None
     for progid in ("Kompas.Application.5", "KOMPAS.Application.5"):
         try:
-            app5 = win32com.client.GetObject(Class=progid)
+            app5 = win32_client.GetObject(Class=progid)
             break
         except Exception:
             continue
