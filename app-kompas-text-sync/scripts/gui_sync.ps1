@@ -353,6 +353,9 @@ function Start-SyncProcess {
 
         $script:SyncProcess = $process
         $script:SyncLogRef = $LogBox
+        $watchToggleButton = $ToggleButton
+        $watchStatusLabel = $StatusLabel
+        $watchToolTip = $ToolTip
 
         $watchTimer = New-Object System.Windows.Forms.Timer
         $watchTimer.Interval = 1000
@@ -374,6 +377,12 @@ function Start-SyncProcess {
 
                     if ($null -ne $script:SyncLogRef) {
                         Add-Log -Box $script:SyncLogRef -Message ("INFO: Процесс синхронизации завершён. Код: " + $exitCode)
+                        if ($exitCode -eq 21) {
+                            Add-Log -Box $script:SyncLogRef -Message "INFO: Excel закрыт, синхронизация отключена."
+                        }
+                        elseif ($exitCode -eq 22) {
+                            Add-Log -Box $script:SyncLogRef -Message "ERROR: Excel-файл открыт только для чтения. Освободите файл и перезапустите синхронизацию."
+                        }
                         if ($exitCode -ne 0) {
                             Add-Log -Box $script:SyncLogRef -Message ("ERROR: Проверьте лог движка: " + $script:LastEngineLogPath)
                         }
@@ -397,7 +406,7 @@ function Start-SyncProcess {
                         $script:SyncWatchTimer = $null
                     }
 
-                    Set-SyncStateUi -ToggleButton $btnToggle -StatusLabel $lblStatus -ToolTip $toolTip -IsRunning $false
+                    Set-SyncStateUi -ToggleButton $watchToggleButton -StatusLabel $watchStatusLabel -ToolTip $watchToolTip -IsRunning $false
                 }
                 catch {
                     Write-CrashLog -Message ("Timer watch error: " + $_.Exception.Message)

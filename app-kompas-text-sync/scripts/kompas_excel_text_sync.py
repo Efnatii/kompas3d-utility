@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import sys
 import time
 import traceback
@@ -18,12 +19,69 @@ EXIT_USAGE = 1
 EXIT_PYWIN32_MISSING = 10
 EXIT_KOMPAS_ERROR = 20
 EXIT_EXCEL_ERROR = 21
+EXIT_EXCEL_READONLY = 22
 
 XL_RED = 3
 XL_NONE = -4142
 STATE_VERSION = 1
 SHEET_DEFAULT = "SyncData"
 LOG_FILE: Path | None = None
+UNBOUND_SCAN_INTERVAL_SEC = 2.0
+AUTOFIT_INTERVAL_SEC = 1.2
+MAX_UNBOUND_SCAN_ROWS = 700
+MAX_UNBOUND_SCAN_COLS = 120
+EXCEL_WORKBOOKS_RETRIES = 8
+EXCEL_WORKBOOKS_RETRY_DELAY_SEC = 0.2
+EXCEL_SAVE_RETRIES = 6
+EXCEL_SAVE_RETRY_DELAY_SEC = 0.18
+EXCEL_CELL_IO_RETRIES = 5
+EXCEL_CELL_IO_RETRY_DELAY_SEC = 0.1
+APPEARANCE_PROPERTIES = (
+    "Color",
+    "ColorIndex",
+    "Style",
+    "TextStyle",
+    "FontName",
+    "FontSize",
+    "Height",
+    "Width",
+    "TextHeight",
+    "TextWidth",
+    "CharHeight",
+    "CharWidth",
+    "WidthFactor",
+    "HeightFactor",
+    "XScale",
+    "YScale",
+    "Bold",
+    "Italic",
+    "Underline",
+    "Strikeout",
+    "Angle",
+    "Slant",
+    "Oblique",
+    "Spacing",
+    "LineSpacing",
+    "Scale",
+    "HScale",
+    "VScale",
+)
+SIZE_PROPERTIES = (
+    "Height",
+    "Width",
+    "TextHeight",
+    "TextWidth",
+    "CharHeight",
+    "CharWidth",
+    "WidthFactor",
+    "HeightFactor",
+    "XScale",
+    "YScale",
+    "Scale",
+    "HScale",
+    "VScale",
+    "FontSize",
+)
 
 
 def log(message: str) -> None:
@@ -46,6 +104,15 @@ class TextRuntime:
     x: float
     y: float
     item: Any
+    update_item: Any | None = None
+
+
+class ExcelSessionClosedError(RuntimeError):
+    pass
+
+
+class ExcelWorkbookReadOnlyError(RuntimeError):
+    pass
 
 
 class SyncEngine:
@@ -62,7 +129,14 @@ class SyncEngine:
         self.doc_state_paths: dict[str, Path] = {}
         self.last_wait = ""
         self.last_doc = ""
+        self.last_workbook_path = ""
+        self.active_workbook = None
+        self.active_sheet = None
+        self.active_workbook_path = ""
         self.last_save_ts = 0.0
+        self.last_unbound_scan_ts = 0.0
+        self.last_autofit_ts = 0.0
+        self.unbound_marks: dict[str, set[tuple[int, int]]] = {}
 
     def run(self, once: bool = False) -> int:
         self._ensure_pywin32()
@@ -74,6 +148,12 @@ class SyncEngine:
                     error_count = 0
                 except KeyboardInterrupt:
                     raise
+                except ExcelSessionClosedError as exc:
+                    log(f"ERROR: {exc}")
+                    return EXIT_EXCEL_ERROR
+                except ExcelWorkbookReadOnlyError as exc:
+                    log(f"ERROR: {exc}")
+                    return EXIT_EXCEL_READONLY
                 except Exception as exc:
                     error_count += 1
                     log(f"ERROR: sync tick failed (#{error_count}): {exc}")
@@ -103,7 +183,33 @@ class SyncEngine:
             log(f"INFO: active drawing -> {doc_path}")
 
         workbook_path = doc_path.with_suffix(".xlsx")
-        wb, ws = self._ensure_workbook(workbook_path)
+        normalized_workbook_path = self._normalize_path(workbook_path)
+        cached_for_doc = (
+            self.active_workbook is not None
+            and self.active_sheet is not None
+            and self.active_workbook_path == normalized_workbook_path
+        )
+        reuse_cached = (
+            cached_for_doc
+            and self._is_workbook_alive(self.active_workbook)
+            and self._is_sheet_alive(self.active_sheet)
+        )
+        if cached_for_doc and not reuse_cached:
+            # Cached COM handles can become stale after Excel reconnects.
+            self.active_workbook = None
+            self.active_sheet = None
+            self.active_workbook_path = ""
+
+        if reuse_cached:
+            wb, ws = self.active_workbook, self.active_sheet
+        else:
+            self._close_previous_workbook_if_needed(workbook_path)
+            wb, ws = self._ensure_workbook(workbook_path)
+            self.active_workbook = wb
+            self.active_sheet = ws
+            self.active_workbook_path = normalized_workbook_path
+
+        self.last_workbook_path = normalized_workbook_path
         doc_state, state_file = self._get_doc_state(doc_path, workbook_path)
 
         elements = self._collect_texts(doc2d, active_view)
@@ -126,27 +232,32 @@ class SyncEngine:
 
         excel_changed = False
         kompas_changed = False
+        autofit_needed = False
         if must_rebuild:
-            self._rebuild_map(doc_state, elements, by_id, ws, signature)
-            excel_changed = True
+            rebuild_result = self._rebuild_map(doc_state, elements, by_id, ws, signature)
+            excel_changed = excel_changed or rebuild_result["excel_changed"]
+            autofit_needed = autofit_needed or rebuild_result["autofit_needed"]
             state_changed = True
 
         sync_result = self._sync_cells(doc_state, by_id, ws)
         excel_changed = excel_changed or sync_result["excel_changed"]
         kompas_changed = kompas_changed or sync_result["kompas_changed"]
         state_changed = state_changed or sync_result["state_changed"]
+        autofit_needed = autofit_needed or sync_result["autofit_needed"]
 
-        if self._mark_unbound(ws, doc_state.get("bindings", [])):
+        if self._mark_unbound(doc_key, ws, doc_state.get("bindings", []), force=must_rebuild):
+            excel_changed = True
+
+        if autofit_needed and self._auto_fit_bound_cells(ws, doc_state.get("bindings", []), force=must_rebuild):
             excel_changed = True
 
         now = time.time()
-        if excel_changed or (now - self.last_save_ts) > 4.0:
+        if excel_changed:
             self._save_workbook(wb)
             self.last_save_ts = now
 
         if kompas_changed:
-            self._safe_call(active_view, ("Update", "Refresh", "Rebuild"))
-            self._safe_call(doc2d, ("Update", "Refresh", "Rebuild"))
+            self._refresh_kompas_after_text_sync(active_view, doc2d)
 
         if state_changed:
             doc_state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -359,58 +470,309 @@ class SyncEngine:
     def _ensure_excel(self) -> Any:
         self._ensure_pywin32()
         if self.excel is not None:
-            return self.excel
-        try:
-            self.excel = self.win32.GetObject(Class="Excel.Application")
-        except Exception:
             try:
-                self.excel = self.win32.Dispatch("Excel.Application")
+                # Keep current handle; liveness will be checked in workbook/cell operations.
+                _ = self.excel
+                return self.excel
             except Exception as exc:
-                raise RuntimeError(f"cannot connect to Excel COM: {exc}") from exc
-        try:
-            self.excel.Visible = True
-            self.excel.DisplayAlerts = False
-        except Exception:
-            pass
-        return self.excel
+                self.excel = None
+                if self._is_excel_session_lost(exc):
+                    raise ExcelSessionClosedError("Excel закрыт. Синхронизация остановлена.") from exc
+        last_exc: Exception | None = None
+        for use_dispatch in (False, True):
+            try:
+                if use_dispatch:
+                    candidate = self.win32.Dispatch("Excel.Application")
+                else:
+                    candidate = self.win32.GetObject(Class="Excel.Application")
+            except Exception as exc:
+                last_exc = exc
+                continue
+
+            self.excel = candidate
+            try:
+                self.excel.Visible = True
+                self.excel.DisplayAlerts = False
+            except Exception:
+                pass
+            return self.excel
+
+        if last_exc is not None:
+            raise RuntimeError(f"cannot connect to Excel COM: {last_exc}") from last_exc
+        raise RuntimeError("cannot connect to Excel COM")
 
     def _ensure_workbook(self, workbook_path: Path) -> tuple[Any, Any]:
-        app = self._ensure_excel()
-        target = os.path.normcase(str(workbook_path.resolve()))
-        existing = None
-        books = self._safe_get(app, "Workbooks")
-        for wb in self._iter_collection(books):
-            full_name = normalize_text(self._safe_get(wb, "FullName")).strip()
-            if full_name and os.path.normcase(full_name) == target:
-                existing = wb
-                break
-        if existing is None:
-            workbook_path.parent.mkdir(parents=True, exist_ok=True)
-            if workbook_path.exists():
-                existing = app.Workbooks.Open(str(workbook_path))
-            else:
-                existing = app.Workbooks.Add()
-                try:
-                    existing.SaveAs(str(workbook_path), 51)
-                except Exception:
-                    existing.SaveAs(str(workbook_path))
-        ws = None
         try:
-            ws = existing.Worksheets(self.sheet_name)
-        except Exception:
+            app = self._ensure_excel()
+            target = os.path.normcase(str(workbook_path.resolve()))
+            if (
+                self.active_workbook is not None
+                and self.active_sheet is not None
+                and self.active_workbook_path == target
+                and self._is_workbook_alive(self.active_workbook)
+                and self._is_sheet_alive(self.active_sheet)
+            ):
+                return self.active_workbook, self.active_sheet
+            existing = None
+            books = self._get_excel_workbooks(app, retries=EXCEL_WORKBOOKS_RETRIES, delay_sec=EXCEL_WORKBOOKS_RETRY_DELAY_SEC)
+            if books is None:
+                existing = self._find_active_workbook(app, target)
+                if existing is None:
+                    self.excel = None
+                    app = self._ensure_excel()
+                    books = self._get_excel_workbooks(
+                        app,
+                        retries=EXCEL_WORKBOOKS_RETRIES,
+                        delay_sec=EXCEL_WORKBOOKS_RETRY_DELAY_SEC,
+                    )
+                    if books is None:
+                        existing = self._find_active_workbook(app, target)
+            if books is None and existing is None:
+                raise RuntimeError("Excel Workbooks collection unavailable")
+
+            if existing is None:
+                for wb in self._iter_collection(books):
+                    if self._workbook_matches_path(wb, target):
+                        existing = wb
+                        break
+                if existing is None:
+                    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+                    if workbook_path.exists():
+                        existing = self._open_workbook_read_write(app, workbook_path)
+                    else:
+                        existing = books.Add()
+                        try:
+                            existing.SaveAs(str(workbook_path), 51)
+                        except Exception:
+                            existing.SaveAs(str(workbook_path))
+            existing = self._ensure_workbook_write_access(app, existing, workbook_path)
             ws = None
-        if ws is None:
             try:
-                ws = existing.Worksheets.Add()
-                ws.Name = self.sheet_name
+                ws = existing.Worksheets(self.sheet_name)
             except Exception:
-                ws = existing.Worksheets(1)
+                ws = None
+            if ws is None:
+                try:
+                    ws = existing.Worksheets.Add()
+                    ws.Name = self.sheet_name
+                except Exception:
+                    ws = existing.Worksheets(1)
+            return existing, ws
+        except ExcelSessionClosedError:
+            raise
+        except Exception as exc:
+            if self._is_excel_session_lost(exc):
+                self.excel = None
+                raise ExcelSessionClosedError("Excel закрыт. Синхронизация остановлена.") from exc
+            raise
+
+    def _workbook_matches_path(self, wb: Any, target_path: str) -> bool:
+        full_name = normalize_text(self._safe_get(wb, "FullName")).strip()
+        return bool(full_name) and os.path.normcase(full_name) == target_path
+
+    def _find_active_workbook(self, app: Any, target_path: str) -> Any | None:
+        wb = self._safe_get(app, "ActiveWorkbook")
+        if wb is None:
+            return None
+        if not self._workbook_matches_path(wb, target_path):
+            return None
+        return wb
+
+    def _normalize_path(self, path_value: Path | str) -> str:
         try:
-            existing.Activate()
-            ws.Activate()
+            return os.path.normcase(str(Path(path_value).resolve()))
+        except Exception:
+            return os.path.normcase(str(path_value))
+
+    def _close_previous_workbook_if_needed(self, current_workbook_path: Path) -> None:
+        previous = normalize_text(self.last_workbook_path).strip()
+        if not previous:
+            return
+
+        current = self._normalize_path(current_workbook_path)
+        if previous == current:
+            return
+
+        if self.active_workbook is not None and self.active_workbook_path == previous:
+            self._close_workbook(self.active_workbook, self.active_workbook_path)
+            self.active_workbook = None
+            self.active_sheet = None
+            self.active_workbook_path = ""
+            self.last_workbook_path = ""
+            return
+
+        app = self.excel
+        self.last_workbook_path = ""
+        if app is None:
+            return
+
+        try:
+            books = self._get_excel_workbooks(app, retries=2, delay_sec=0.05)
+            if books is None:
+                self.excel = None
+                return
+
+            for wb in self._iter_collection(books):
+                full_name = normalize_text(self._safe_get(wb, "FullName")).strip()
+                if not full_name:
+                    continue
+                if self._normalize_path(full_name) != previous:
+                    continue
+
+                self._close_workbook(wb, full_name)
+                break
+        except Exception as exc:
+            log(f"WARN: failed to close previous workbook: {exc}")
+
+    def _open_workbook_read_write(self, app: Any, workbook_path: Path) -> Any:
+        filename = str(workbook_path)
+        books = self._get_excel_workbooks(app, retries=EXCEL_WORKBOOKS_RETRIES, delay_sec=EXCEL_WORKBOOKS_RETRY_DELAY_SEC)
+        if books is None:
+            raise RuntimeError("Excel Workbooks collection unavailable")
+        try:
+            return books.Open(
+                Filename=filename,
+                UpdateLinks=0,
+                ReadOnly=False,
+                IgnoreReadOnlyRecommended=True,
+                Notify=False,
+                AddToMru=False,
+            )
+        except TypeError:
+            # Fallback for older Excel COM wrappers without named args support.
+            return books.Open(filename, 0, False)
+
+    def _ensure_workbook_write_access(self, app: Any, wb: Any, workbook_path: Path) -> Any:
+        if not bool(self._safe_get(wb, "ReadOnly")):
+            return wb
+
+        log(f"WARN: workbook is read-only, attempting read-write reopen -> {workbook_path}")
+
+        # Try to switch access mode in-place first.
+        try:
+            wb.ChangeFileAccess(2)  # xlReadWrite
         except Exception:
             pass
-        return existing, ws
+        if not bool(self._safe_get(wb, "ReadOnly")):
+            return wb
+
+        # Read-only attribute often causes this; try to clear it.
+        self._clear_readonly_file_attribute(workbook_path)
+
+        try:
+            wb.Close(False)
+        except Exception:
+            pass
+
+        reopened = self._open_workbook_read_write(app, workbook_path)
+        if not bool(self._safe_get(reopened, "ReadOnly")):
+            return reopened
+
+        raise ExcelWorkbookReadOnlyError(
+            "Excel-файл открыт только для чтения. Закройте другие процессы, снимите read-only и запустите синхронизацию снова."
+        )
+
+    @staticmethod
+    def _clear_readonly_file_attribute(path: Path) -> None:
+        try:
+            if not path.exists():
+                return
+            mode = path.stat().st_mode
+            if mode & stat.S_IWRITE:
+                return
+            os.chmod(path, mode | stat.S_IWRITE)
+        except Exception:
+            pass
+
+    def _get_excel_workbooks(self, app: Any, retries: int = EXCEL_WORKBOOKS_RETRIES, delay_sec: float = EXCEL_WORKBOOKS_RETRY_DELAY_SEC) -> Any:
+        if retries < 1:
+            retries = 1
+        if delay_sec < 0:
+            delay_sec = 0.0
+
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                books = getattr(app, "Workbooks")
+            except Exception as exc:
+                last_exc = exc
+                if self._is_excel_session_lost(exc):
+                    self.excel = None
+                    raise ExcelSessionClosedError("Excel Р·Р°РєСЂС‹С‚. РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ РѕСЃС‚Р°РЅРѕРІР»РµРЅР°.") from exc
+                if self._is_excel_busy_error(exc):
+                    if attempt + 1 < retries and delay_sec > 0:
+                        time.sleep(delay_sec)
+                    continue
+                if attempt + 1 < retries and delay_sec > 0:
+                    time.sleep(delay_sec)
+                continue
+            if books is not None:
+                return books
+            if attempt + 1 < retries and delay_sec > 0:
+                time.sleep(delay_sec)
+        if last_exc is not None and not self._is_excel_busy_error(last_exc):
+            log(f"WARN: cannot access Excel.Workbooks: {last_exc}")
+        return None
+
+    def _close_workbook(self, wb: Any, workbook_name: str = "") -> bool:
+        self._save_workbook(wb)
+        closed = False
+        try:
+            wb.Close(False)
+            closed = True
+        except Exception:
+            try:
+                wb.Close()
+                closed = True
+            except Exception as close_exc:
+                log(f"WARN: failed to close previous workbook: {close_exc}")
+
+        if closed:
+            if not workbook_name:
+                workbook_name = normalize_text(self._safe_get(wb, "FullName")).strip()
+            if workbook_name:
+                log(f"INFO: closed previous workbook -> {workbook_name}")
+        return closed
+
+    def _is_workbook_alive(self, wb: Any) -> bool:
+        if wb is None:
+            return False
+        try:
+            full_name = normalize_text(getattr(wb, "FullName")).strip()
+            if full_name:
+                return True
+        except Exception as exc:
+            if self._is_excel_busy_error(exc):
+                return True
+            if self._is_excel_session_lost(exc):
+                return False
+        try:
+            _ = getattr(wb, "Saved")
+            return True
+        except Exception as exc:
+            if self._is_excel_busy_error(exc):
+                return True
+        return False
+
+    def _is_sheet_alive(self, ws: Any) -> bool:
+        if ws is None:
+            return False
+        try:
+            name = normalize_text(getattr(ws, "Name")).strip()
+            if name:
+                return True
+        except Exception as exc:
+            if self._is_excel_busy_error(exc):
+                return True
+            if self._is_excel_session_lost(exc):
+                return False
+        try:
+            _ = getattr(ws, "Index")
+            return True
+        except Exception as exc:
+            if self._is_excel_busy_error(exc):
+                return True
+        return False
 
     def _collect_texts(self, doc2d: Any, active_view: Any) -> list[TextRuntime]:
         views = [active_view]
@@ -481,7 +843,14 @@ class SyncEngine:
                 used_refs.add(text_id)
 
                 from_drawing_texts.append(
-                    TextRuntime(text_id=text_id, text=text_value, x=x_val, y=y_val, item=drawing_text)
+                    TextRuntime(
+                        text_id=text_id,
+                        text=text_value,
+                        x=x_val,
+                        y=y_val,
+                        item=text_obj,
+                        update_item=drawing_text,
+                    )
                 )
 
         if from_drawing_texts:
@@ -516,7 +885,7 @@ class SyncEngine:
                         text_id = f"{base_id}#{seq}"
                         seq += 1
                     used.add(text_id)
-                    out.append(TextRuntime(text_id=text_id, text=text, x=x_val, y=y_val, item=item))
+                    out.append(TextRuntime(text_id=text_id, text=text, x=x_val, y=y_val, item=item, update_item=item))
         out.sort(key=lambda i: (-i.y, i.x, i.text_id))
         return out
 
@@ -551,31 +920,88 @@ class SyncEngine:
             return f"ptr:{ptr}"
         return f"xy:{x_val:.3f}:{y_val:.3f}:{idx + 1}"
 
-    def _rebuild_map(self, doc_state: dict[str, Any], elements: list[TextRuntime], by_id: dict[str, TextRuntime], ws: Any, signature: str) -> None:
+    def _rebuild_map(
+        self,
+        doc_state: dict[str, Any],
+        elements: list[TextRuntime],
+        by_id: dict[str, TextRuntime],
+        ws: Any,
+        signature: str,
+    ) -> dict[str, bool]:
         snapshots = [TextElement(text_id=e.text_id, text=e.text, x=e.x, y=e.y) for e in elements]
         rows = group_vertical(snapshots, self.corridor_mm)
         layout = build_bindings(rows)
+        previous_bindings = [
+            item for item in list(doc_state.get("bindings", [])) if isinstance(item, dict)
+        ]
+        previous_cells = {
+            (int(item.get("row", 1)), int(item.get("col", 1)))
+            for item in previous_bindings
+        }
+        layout_cells = {(int(cell.row), int(cell.col)) for cell in layout}
+        previous_ids = {
+            normalize_text(item.get("text_id", "")).strip()
+            for item in previous_bindings
+            if normalize_text(item.get("text_id", "")).strip()
+        }
+        new_ids = {normalize_text(cell.text_id).strip() for cell in layout if normalize_text(cell.text_id).strip()}
+        added_ids = new_ids - previous_ids
+        removed_ids = previous_ids - new_ids
+        full_rebuild = bool(added_ids)
 
-        for b in doc_state.get("bindings", []):
-            self._write_cell(ws, int(b.get("row", 1)), int(b.get("col", 1)), "")
-            self._set_red(ws, int(b.get("row", 1)), int(b.get("col", 1)), False)
+        previous_excel_by_text_id: dict[str, str] = {}
+        for item in previous_bindings:
+            text_id = normalize_text(item.get("text_id", "")).strip()
+            if not text_id or text_id in previous_excel_by_text_id:
+                continue
+            row = int(item.get("row", 1))
+            col = int(item.get("col", 1))
+            previous_excel_by_text_id[text_id] = self._read_cell(ws, row, col)
+
+        clear_cells = previous_cells - layout_cells
+        if full_rebuild:
+            clear_cells = previous_cells | layout_cells
 
         bindings: list[dict[str, Any]] = []
+        excel_changed = False
+        autofit_needed = False
+        excel_priority_cells = 0
+        for row, col in clear_cells:
+            if self._read_cell(ws, row, col):
+                self._write_cell(ws, row, col, "")
+                excel_changed = True
+                autofit_needed = True
+            self._set_red(ws, row, col, False)
+
         for cell in layout:
             text_id = cell.text_id
             item = by_id.get(text_id)
             if item is None:
                 continue
-            value = normalize_text(item.text)
-            self._write_cell(ws, cell.row, cell.col, value)
+            kompas_value = normalize_text(item.text)
+            if text_id in previous_excel_by_text_id:
+                preserved_excel = previous_excel_by_text_id[text_id]
+                target_excel = preserved_excel
+                excel_priority_cells += 1
+            else:
+                target_excel = kompas_value
+
+            current_excel = self._read_cell(ws, cell.row, cell.col)
+            if current_excel != target_excel:
+                self._write_cell(ws, cell.row, cell.col, target_excel)
+                excel_changed = True
+                autofit_needed = True
+            current_excel = target_excel
+
             self._set_red(ws, cell.row, cell.col, False)
             bindings.append(
                 {
                     "row": int(cell.row),
                     "col": int(cell.col),
                     "text_id": text_id,
-                    "last_excel": value,
-                    "last_kompas": value,
+                    # Baseline from KOMPAS: if Excel was changed offline, first sync tick pushes Excel -> KOMPAS.
+                    "last_excel": kompas_value,
+                    "last_kompas": kompas_value,
                 }
             )
         doc_state["bindings"] = bindings
@@ -583,12 +1009,22 @@ class SyncEngine:
         doc_state["corridor_mm"] = self.corridor_mm
         doc_state["_dirty"] = True
         rows_count = max((int(b["row"]) for b in bindings), default=0)
-        log(f"INFO: mapping rebuilt ({len(bindings)} bindings, rows={rows_count}, corridor={self.corridor_mm:g} mm)")
+        log(
+            f"INFO: mapping rebuilt ({len(bindings)} bindings, rows={rows_count}, "
+            f"corridor={self.corridor_mm:g} mm, excel_priority={excel_priority_cells}, "
+            f"added={len(added_ids)}, removed={len(removed_ids)}, full_rebuild={full_rebuild})"
+        )
+        return {
+            "excel_changed": excel_changed,
+            "autofit_needed": autofit_needed,
+            "full_rebuild": full_rebuild,
+        }
 
     def _sync_cells(self, doc_state: dict[str, Any], by_id: dict[str, TextRuntime], ws: Any) -> dict[str, bool]:
         excel_changed = False
         kompas_changed = False
         state_changed = False
+        autofit_needed = False
         e2k = 0
         k2e = 0
         missing = 0
@@ -609,16 +1045,18 @@ class SyncEngine:
                 current_kompas=cur_kompas,
             )
             if action == "excel_to_kompas":
-                if self._set_text(item.item, cur_excel):
+                if self._set_text(item.item, cur_excel, item.update_item):
                     item.text = cur_excel
                     cur_kompas = cur_excel
                     kompas_changed = True
+                    autofit_needed = True
                     e2k += 1
                     state_changed = True
             elif action == "kompas_to_excel":
                 self._write_cell(ws, row, col, cur_kompas)
                 cur_excel = cur_kompas
                 excel_changed = True
+                autofit_needed = True
                 k2e += 1
                 state_changed = True
             prev_last_excel = normalize_text(b.get("last_excel", ""))
@@ -632,52 +1070,290 @@ class SyncEngine:
             state_changed = True
         if e2k > 0 or k2e > 0:
             log(f"INFO: sync updates excel->kompas={e2k}, kompas->excel={k2e}")
-        return {"excel_changed": excel_changed, "kompas_changed": kompas_changed, "state_changed": state_changed}
+        return {
+            "excel_changed": excel_changed,
+            "kompas_changed": kompas_changed,
+            "state_changed": state_changed,
+            "autofit_needed": autofit_needed,
+        }
 
-    def _mark_unbound(self, ws: Any, bindings: list[dict[str, Any]]) -> bool:
+    def _mark_unbound(self, doc_key: str, ws: Any, bindings: list[dict[str, Any]], force: bool = False) -> bool:
+        now = time.time()
+        if not force and (now - self.last_unbound_scan_ts) < UNBOUND_SCAN_INTERVAL_SEC:
+            return False
+        self.last_unbound_scan_ts = now
+
         bound = {(int(b.get("row", 1)), int(b.get("col", 1))) for b in bindings}
         max_row = max((r for r, _ in bound), default=1)
         max_col = max((c for _, c in bound), default=1)
         used = self._safe_get(ws, "UsedRange")
         used_rows = self._safe_int(self._safe_get(self._safe_get(used, "Rows"), "Count"), 1)
         used_cols = self._safe_int(self._safe_get(self._safe_get(used, "Columns"), "Count"), 1)
-        scan_rows = min(max(max_row + 5, used_rows), 1500)
-        scan_cols = min(max(max_col + 2, used_cols), 200)
-        changed = False
+        scan_rows = min(max(max_row + 5, used_rows), MAX_UNBOUND_SCAN_ROWS)
+        scan_cols = min(max(max_col + 2, used_cols), MAX_UNBOUND_SCAN_COLS)
+        values = self._read_range_matrix(ws, scan_rows, scan_cols)
+        target_marked: set[tuple[int, int]] = set()
         for row in range(1, scan_rows + 1):
+            row_values = values[row - 1] if (row - 1) < len(values) else []
             for col in range(1, scan_cols + 1):
                 if (row, col) in bound:
-                    changed = self._set_red(ws, row, col, False) or changed
                     continue
-                mark = bool(self._read_cell(ws, row, col).strip())
-                changed = self._set_red(ws, row, col, mark) or changed
+                value = row_values[col - 1] if (col - 1) < len(row_values) else ""
+                if normalize_text(value).strip():
+                    target_marked.add((row, col))
+
+        previous_marked = self.unbound_marks.get(doc_key, set())
+        to_unmark = (previous_marked - target_marked) | (previous_marked & bound)
+        to_mark = target_marked - previous_marked
+
+        changed = False
+        for row, col in to_unmark:
+            changed = self._set_red(ws, row, col, False) or changed
+        for row, col in to_mark:
+            changed = self._set_red(ws, row, col, True) or changed
+        if force:
+            for row, col in bound:
+                changed = self._set_red(ws, row, col, False) or changed
+
+        self.unbound_marks[doc_key] = target_marked
         return changed
 
-    def _set_text(self, item: Any, value: str) -> bool:
+    def _read_range_matrix(self, ws: Any, rows: int, cols: int) -> list[list[str]]:
+        if rows <= 0 or cols <= 0:
+            return []
+        try:
+            data = ws.Range(ws.Cells(1, 1), ws.Cells(rows, cols)).Value
+        except Exception:
+            return []
+
+        matrix = [["" for _ in range(cols)] for _ in range(rows)]
+        if rows == 1 and cols == 1:
+            matrix[0][0] = normalize_text(data)
+            return matrix
+
+        if isinstance(data, (list, tuple)):
+            outer = list(data)
+            if rows == 1 and outer and not isinstance(outer[0], (list, tuple)):
+                for col_idx, value in enumerate(outer[:cols], start=0):
+                    matrix[0][col_idx] = normalize_text(value)
+                return matrix
+
+            for row_idx, row_data in enumerate(outer[:rows], start=0):
+                if isinstance(row_data, (list, tuple)):
+                    for col_idx, value in enumerate(list(row_data)[:cols], start=0):
+                        matrix[row_idx][col_idx] = normalize_text(value)
+                else:
+                    matrix[row_idx][0] = normalize_text(row_data)
+            return matrix
+
+        matrix[0][0] = normalize_text(data)
+        return matrix
+
+    def _auto_fit_bound_cells(self, ws: Any, bindings: list[dict[str, Any]], force: bool = False) -> bool:
+        if not bindings:
+            return False
+
+        now = time.time()
+        if not force and (now - self.last_autofit_ts) < AUTOFIT_INTERVAL_SEC:
+            return False
+
+        max_row = max((int(b.get("row", 1)) for b in bindings), default=1)
+        max_col = max((int(b.get("col", 1)) for b in bindings), default=1)
+        try:
+            rng = ws.Range(ws.Cells(1, 1), ws.Cells(max_row, max_col))
+            rng.WrapText = True
+            rng.Columns.AutoFit()
+            rng.Rows.AutoFit()
+            self.last_autofit_ts = now
+            return True
+        except Exception:
+            return False
+
+    def _set_text(self, item: Any, value: str, update_item: Any | None = None) -> bool:
         value = normalize_text(value)
+        appearance_snapshot, appearance_baseline = self._capture_text_appearance(item, update_item)
+
+        # Text-only sync: write string payload and then restore appearance properties.
+        if self._safe_set(item, "Str", value):
+            return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
+
         text_obj = self._cast(item, "IText")
         if text_obj is not None:
             try:
                 text_obj.Str = value
-                self._safe_call(item, ("Update", "Refresh", "Rebuild"))
-                return True
+                return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
             except Exception:
                 pass
 
-        for name in ("Str", "Text", "String", "Content", "Value"):
-            if self._safe_set(item, name, value):
-                self._safe_call(item, ("Update", "Refresh", "Rebuild"))
-                return True
         text_obj = self._safe_get(item, "Text")
-        for name in ("Str", "Text", "String", "Value"):
-            if self._safe_set(text_obj, name, value):
-                self._safe_call(text_obj, ("Update", "Refresh", "Rebuild"))
-                return True
-        for method in ("SetText", "SetStr", "PutText", "SetContent", "SetString"):
-            if self._safe_call(item, (method,), args=(value,)) is not None:
-                self._safe_call(item, ("Update", "Refresh", "Rebuild"))
-                return True
+        if self._safe_set(text_obj, "Str", value):
+            return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
+
+        nested_cast = self._cast(text_obj, "IText")
+        if nested_cast is not None:
+            try:
+                nested_cast.Str = value
+                return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
+            except Exception:
+                pass
         return False
+
+    def _finalize_text_update(
+        self,
+        item: Any,
+        update_item: Any | None,
+        expected_text: str,
+        appearance_snapshot: list[tuple[Any, str, Any]],
+        appearance_baseline: dict[str, Any],
+    ) -> bool:
+        # First restore appearance without forcing update; this avoids size resets for many entities.
+        self._restore_text_appearance(appearance_snapshot)
+        self._enforce_appearance_after_update(item, update_item, appearance_baseline)
+        if self._is_text_applied(item, expected_text):
+            return True
+
+        # Fallback only when required: some entities need explicit update to commit text change.
+        if update_item is not None:
+            self._safe_call(update_item, ("Update", "Refresh", "Rebuild"))
+            self._restore_text_appearance(appearance_snapshot)
+            self._enforce_appearance_after_update(item, update_item, appearance_baseline)
+            if self._is_text_applied(item, expected_text):
+                return True
+
+        return self._is_text_applied(item, expected_text)
+
+    def _capture_text_appearance(self, item: Any, update_item: Any | None) -> tuple[list[tuple[Any, str, Any]], dict[str, Any]]:
+        targets = self._collect_appearance_targets(item, update_item)
+
+        snapshot: list[tuple[Any, str, Any]] = []
+        baseline: dict[str, Any] = {}
+        for target in targets:
+            for name in APPEARANCE_PROPERTIES:
+                has_attr, value = self._safe_get_with_presence(target, name)
+                if not has_attr:
+                    continue
+                snapshot.append((target, name, value))
+                if name not in baseline and self._is_scalar_appearance_value(value):
+                    baseline[name] = value
+        return snapshot, baseline
+
+    def _restore_text_appearance(self, snapshot: list[tuple[Any, str, Any]]) -> None:
+        for obj, name, value in snapshot:
+            self._safe_set(obj, name, value)
+
+    def _collect_appearance_targets(self, item: Any, update_item: Any | None) -> list[Any]:
+        targets: list[Any] = []
+        queue: list[tuple[Any, int]] = [
+            (item, 0),
+            (self._safe_get(item, "Text"), 0),
+            (update_item, 0),
+            (self._safe_get(update_item, "Text"), 0),
+        ]
+        nested_names = (
+            "Text",
+            "TextStyle",
+            "Style",
+            "Font",
+            "Paragraph",
+            "Format",
+            "Param",
+            "Params",
+            "Properties",
+            "TextLine",
+            "TextLines",
+            "Lines",
+            "Items",
+        )
+        max_depth = 3
+
+        while queue:
+            base, depth = queue.pop(0)
+            if base is None:
+                continue
+            if any(base is known for known in targets):
+                continue
+            targets.append(base)
+            if depth >= max_depth:
+                continue
+
+            for name in nested_names:
+                nested = self._safe_get(base, name)
+                if nested is not None:
+                    queue.append((nested, depth + 1))
+
+                called = self._safe_call(base, (name,), args=())
+                if called is not None:
+                    queue.append((called, depth + 1))
+
+            cast_text = self._cast(base, "IText")
+            if cast_text is not None:
+                queue.append((cast_text, depth + 1))
+
+            for collection_name in ("TextLines", "Lines", "Items"):
+                collection = self._safe_get(base, collection_name)
+                if collection is None:
+                    continue
+                for idx, entry in enumerate(self._iter_collection(collection)):
+                    if idx >= 8:
+                        break
+                    queue.append((entry, depth + 1))
+
+        return targets
+
+    def _enforce_appearance_after_update(self, item: Any, update_item: Any | None, baseline: dict[str, Any]) -> None:
+        if not baseline:
+            return
+        targets = self._collect_appearance_targets(item, update_item)
+        restored_props: list[str] = []
+        for target in targets:
+            for name in APPEARANCE_PROPERTIES:
+                if name not in baseline:
+                    continue
+                has_attr, current = self._safe_get_with_presence(target, name)
+                if not has_attr:
+                    continue
+                desired = baseline[name]
+                if self._appearance_values_equal(current, desired):
+                    continue
+                if self._is_scalar_appearance_value(desired):
+                    if self._safe_set(target, name, desired):
+                        restored_props.append(name)
+
+        if restored_props:
+            unique = sorted(set(restored_props))
+            preview = ", ".join(unique[:6])
+            if len(unique) > 6:
+                preview = preview + ", ..."
+            log(f"INFO: restored text appearance -> {preview}")
+
+    def _is_text_applied(self, item: Any, expected_text: str) -> bool:
+        current = self._extract_text(item)
+        if current is None:
+            current = normalize_text(self._safe_get(item, "Str"))
+        return normalize_text(current) == normalize_text(expected_text)
+
+    @staticmethod
+    def _is_scalar_appearance_value(value: Any) -> bool:
+        return isinstance(value, (int, float, bool, str))
+
+    @staticmethod
+    def _appearance_values_equal(left: Any, right: Any) -> bool:
+        if left is right:
+            return True
+        try:
+            lf = float(str(left).replace(",", "."))
+            rf = float(str(right).replace(",", "."))
+            return abs(lf - rf) <= 1e-9
+        except Exception:
+            return normalize_text(left) == normalize_text(right)
+
+    @staticmethod
+    def _is_default_size_value(value: Any) -> bool:
+        try:
+            numeric = float(str(value).replace(",", "."))
+            return abs(numeric - 5.0) <= 1e-9
+        except Exception:
+            return normalize_text(value).strip() in {"5", "5.0", "5,0"}
 
     def _set_red(self, ws: Any, row: int, col: int, mark: bool) -> bool:
         try:
@@ -693,22 +1369,64 @@ class SyncEngine:
             return False
 
     def _read_cell(self, ws: Any, row: int, col: int) -> str:
-        try:
-            return normalize_text(ws.Cells(row, col).Value)
-        except Exception:
-            return ""
+        for attempt in range(EXCEL_CELL_IO_RETRIES):
+            try:
+                cell = ws.Cells(row, col)
+                value = self._safe_get(cell, "Value2")
+                if value is None:
+                    value = self._safe_get(cell, "Value")
+                return normalize_text(value)
+            except Exception as exc:
+                if self._is_excel_busy_error(exc) and attempt + 1 < EXCEL_CELL_IO_RETRIES:
+                    time.sleep(EXCEL_CELL_IO_RETRY_DELAY_SEC)
+                    continue
+                if self._is_excel_session_lost(exc):
+                    self.excel = None
+                    self.active_workbook = None
+                    self.active_sheet = None
+                    self.active_workbook_path = ""
+                return ""
+        return ""
 
     def _write_cell(self, ws: Any, row: int, col: int, value: str) -> None:
-        try:
-            ws.Cells(row, col).Value = value
-        except Exception:
-            pass
+        for attempt in range(EXCEL_CELL_IO_RETRIES):
+            try:
+                cell = ws.Cells(row, col)
+                if not self._safe_set(cell, "Value2", value):
+                    self._safe_set(cell, "Value", value)
+                return
+            except Exception as exc:
+                if self._is_excel_busy_error(exc) and attempt + 1 < EXCEL_CELL_IO_RETRIES:
+                    time.sleep(EXCEL_CELL_IO_RETRY_DELAY_SEC)
+                    continue
+                if self._is_excel_session_lost(exc):
+                    self.excel = None
+                    self.active_workbook = None
+                    self.active_sheet = None
+                    self.active_workbook_path = ""
+                return
 
     def _save_workbook(self, wb: Any) -> None:
-        try:
-            wb.Save()
-        except Exception as exc:
-            log(f"WARN: workbook save failed: {exc}")
+        for attempt in range(EXCEL_SAVE_RETRIES):
+            try:
+                wb.Save()
+                return
+            except Exception as exc:
+                if self._is_excel_busy_error(exc) and attempt + 1 < EXCEL_SAVE_RETRIES:
+                    time.sleep(EXCEL_SAVE_RETRY_DELAY_SEC)
+                    continue
+                log(f"WARN: workbook save failed: {exc}")
+                if self._is_excel_session_lost(exc):
+                    self.excel = None
+                    self.active_workbook = None
+                    self.active_sheet = None
+                    self.active_workbook_path = ""
+                return
+
+    def _refresh_kompas_after_text_sync(self, active_view: Any, doc2d: Any) -> None:
+        # Keep redraw lightweight; avoid full rebuild that can alter text appearance.
+        self._safe_call(active_view, ("Refresh", "Redraw", "UpdateDisplay"))
+        self._safe_call(doc2d, ("Refresh", "Redraw", "UpdateDisplay"))
 
     def _cast(self, obj: Any, target_type: str) -> Any:
         if self.win32 is None or obj is None:
@@ -774,6 +1492,15 @@ class SyncEngine:
             return None
 
     @staticmethod
+    def _safe_get_with_presence(obj: Any, name: str) -> tuple[bool, Any]:
+        if obj is None:
+            return False, None
+        try:
+            return True, getattr(obj, name)
+        except Exception:
+            return False, None
+
+    @staticmethod
     def _safe_set(obj: Any, name: str, value: Any) -> bool:
         if obj is None:
             return False
@@ -812,6 +1539,33 @@ class SyncEngine:
             return float(str(value).replace(",", "."))
         except Exception:
             return default
+
+    @staticmethod
+    def _is_excel_session_lost(exc: Exception) -> bool:
+        text = normalize_text(exc).lower()
+        markers = (
+            "0x800706ba",
+            "0x80010108",
+            "rpc server is unavailable",
+            "object invoked has disconnected",
+            "the object invoked has disconnected",
+            "удаленный сервер недоступен",
+            "объект вызова отключен",
+        )
+        return any(marker in text for marker in markers)
+
+    @staticmethod
+    def _is_excel_busy_error(exc: Exception) -> bool:
+        text = normalize_text(exc).lower()
+        markers = (
+            "0x80010001",
+            "0x8001010a",
+            "rpc_e_call_rejected",
+            "server call retry later",
+            "call was rejected by callee",
+            "вызов был отклонен",
+        )
+        return any(marker in text for marker in markers)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

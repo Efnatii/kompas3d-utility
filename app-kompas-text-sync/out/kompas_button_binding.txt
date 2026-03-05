@@ -1,8 +1,8 @@
 ﻿KOMPAS-3D button binding (external command)
 -------------------------------------------
-Program : C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\bin\app-kompas-text-sync.exe
+Program : C:\_GIT_\kompas3d-utility\app-kompas-text-sync\bin\app-kompas-text-sync.exe
 Arguments: 
 Name    : Kompas Text Sync
-Icon    : C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\assets\app.ico
+Icon    : C:\_GIT_\kompas3d-utility\app-kompas-text-sync\assets\app.ico
 Status  : READY
 Source  : bin/<app>.exe
