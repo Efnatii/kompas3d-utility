@@ -1,9 +1,9 @@
 ﻿{
     "input_path":  "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\xlsx-to-kompas-tbl\\fixtures\\table_M2.xlsx",
-    "cell_width_mm":  "300",
+    "cell_width_mm":  "30",
     "table_height_mm":  "64",
     "table_width_mm":  "390",
     "mode":  "cell",
-    "cell_height_mm":  "80",
-    "output_path":  "C:\\Users\\eFnat\\Yandex.Disk-egory.forward\\2 В РАБОТУ 2020\\0152-0722  БКМУ 8 согласно Т.З.Пэкидж ДГУ KTA50G3 (0280)\\2 РАБОЧАЯ\\table_M2.tbl"
+    "cell_height_mm":  "8",
+    "output_path":  "C:\\Users\\eFnat\\Yandex.Disk-egory.forward\\1 ЗАПРОСЫ 2025\\0245 2025-07-11 Смарт Монтаж Андрей Куринка доработка\\2 ТЕХ ОТРАБОТКА ЗАПРОСА\\table_M2.tbl"
 }

@@ -1,0 +1,114 @@
+[01:31:17] INFO: active drawing -> C:\Users\eFnat\Yandex.Disk-egory.forward\1 ЗАПРОСЫ 2025\0245 2025-07-11 Смарт Монтаж Андрей Куринка доработка\2 ТЕХ ОТРАБОТКА ЗАПРОСА\_ ГРЩ (0245) ГЧ изм. 28.02.2026.cdw
+[01:32:26] INFO: active drawing -> C:\Users\eFnat\Yandex.Disk-egory.forward\1 ЗАПРОСЫ 2025\0245 2025-07-11 Смарт Монтаж Андрей Куринка доработка\2 ТЕХ ОТРАБОТКА ЗАПРОСА\_ ГРЩ (0245) ГЧ изм. 28.02.2026.cdw
+[01:32:28] WARN: workbook save failed: (-2147418111, 'Вызов был отклонен.', None, None)
+[01:32:29] ERROR: sync tick failed (#1): (-2147418111, 'Вызов был отклонен.', None, None)
+[01:32:29] Traceback (most recent call last):
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 72, in run
+    self.tick()
+    ~~~~~~~~~^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 103, in tick
+    wb, ws = self._ensure_workbook(workbook_path)
+             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 308, in _ensure_workbook
+    existing = app.Workbooks.Open(str(workbook_path))
+               ^^^^^^^^^^^^^
+  File "C:\Users\eFnat\AppData\Roaming\Python\Python314\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147418111, 'Вызов был отклонен.', None, None)
+[01:32:31] INFO: sync updates excel->kompas=1, kompas->excel=0
+[01:33:16] INFO: active drawing -> C:\Users\eFnat\Yandex.Disk-egory.forward\1 ЗАПРОСЫ 2025\0245 2025-07-11 Смарт Монтаж Андрей Куринка доработка\2 ТЕХ ОТРАБОТКА ЗАПРОСА\_ ГРЩ (0245) ГЧ изм. 28.02.2026.cdw
+[01:33:17] INFO: sync updates excel->kompas=0, kompas->excel=1
+[01:33:25] INFO: active drawing -> C:\Users\eFnat\Yandex.Disk-egory.forward\1 ЗАПРОСЫ 2025\0245 2025-07-11 Смарт Монтаж Андрей Куринка доработка\2 ТЕХ ОТРАБОТКА ЗАПРОСА\_ ГРЩ (0245) ГЧ изм. 28.02.2026.cdw
+[01:33:35] INFO: sync updates excel->kompas=1, kompas->excel=0
+[01:33:35] WARN: workbook save failed: (-2147418111, 'Вызов был отклонен.', None, None)
+[01:33:37] INFO: sync updates excel->kompas=0, kompas->excel=1
+[01:33:37] WARN: workbook save failed: (-2147418111, 'Вызов был отклонен.', None, None)
+[01:33:38] ERROR: sync tick failed (#1): (-2147418111, 'Вызов был отклонен.', None, None)
+[01:33:38] Traceback (most recent call last):
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 72, in run
+    self.tick()
+    ~~~~~~~~~^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 103, in tick
+    wb, ws = self._ensure_workbook(workbook_path)
+             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 308, in _ensure_workbook
+    existing = app.Workbooks.Open(str(workbook_path))
+               ^^^^^^^^^^^^^
+  File "C:\Users\eFnat\AppData\Roaming\Python\Python314\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147418111, 'Вызов был отклонен.', None, None)
+[01:33:40] ERROR: sync tick failed (#2): (-2147418111, 'Вызов был отклонен.', None, None)
+[01:33:40] Traceback (most recent call last):
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 72, in run
+    self.tick()
+    ~~~~~~~~~^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 103, in tick
+    wb, ws = self._ensure_workbook(workbook_path)
+             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 308, in _ensure_workbook
+    existing = app.Workbooks.Open(str(workbook_path))
+               ^^^^^^^^^^^^^
+  File "C:\Users\eFnat\AppData\Roaming\Python\Python314\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147418111, 'Вызов был отклонен.', None, None)
+[01:33:42] INFO: sync updates excel->kompas=1, kompas->excel=0
+[06:55:07] INFO: active drawing -> C:\Users\eFnat\Yandex.Disk-egory.forward\1 ЗАПРОСЫ 2025\0245 2025-07-11 Смарт Монтаж Андрей Куринка доработка\2 ТЕХ ОТРАБОТКА ЗАПРОСА\_ ГРЩ (0245) ГЧ изм. 28.02.2026.cdw
+[06:55:08] INFO: state json -> C:\Users\eFnat\Yandex.Disk-egory.forward\1 ЗАПРОСЫ 2025\0245 2025-07-11 Смарт Монтаж Андрей Куринка доработка\2 ТЕХ ОТРАБОТКА ЗАПРОСА\_ ГРЩ (0245) ГЧ изм. 28.02.2026.json
+[06:55:16] ERROR: sync tick failed (#1): (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:16] Traceback (most recent call last):
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 73, in run
+    self.tick()
+    ~~~~~~~~~^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 106, in tick
+    wb, ws = self._ensure_workbook(workbook_path)
+             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 390, in _ensure_workbook
+    existing = app.Workbooks.Open(str(workbook_path))
+               ^^^^^^^^^^^^^
+  File "C:\Users\eFnat\AppData\Roaming\Python\Python314\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:17] ERROR: sync tick failed (#2): (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:17] Traceback (most recent call last):
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 73, in run
+    self.tick()
+    ~~~~~~~~~^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 106, in tick
+    wb, ws = self._ensure_workbook(workbook_path)
+             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 390, in _ensure_workbook
+    existing = app.Workbooks.Open(str(workbook_path))
+               ^^^^^^^^^^^^^
+  File "C:\Users\eFnat\AppData\Roaming\Python\Python314\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:20] ERROR: sync tick failed (#3): (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:20] Traceback (most recent call last):
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 73, in run
+    self.tick()
+    ~~~~~~~~~^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 106, in tick
+    wb, ws = self._ensure_workbook(workbook_path)
+             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 390, in _ensure_workbook
+    existing = app.Workbooks.Open(str(workbook_path))
+               ^^^^^^^^^^^^^
+  File "C:\Users\eFnat\AppData\Roaming\Python\Python314\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:22] ERROR: sync tick failed (#4): (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:22] Traceback (most recent call last):
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 73, in run
+    self.tick()
+    ~~~~~~~~~^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 106, in tick
+    wb, ws = self._ensure_workbook(workbook_path)
+             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\__MY_PROJECTS__\git\kompas3d-utility\app-kompas-text-sync\scripts\kompas_excel_text_sync.py", line 390, in _ensure_workbook
+    existing = app.Workbooks.Open(str(workbook_path))
+               ^^^^^^^^^^^^^
+  File "C:\Users\eFnat\AppData\Roaming\Python\Python314\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147418111, 'Вызов был отклонен.', None, None)
+[06:55:26] INFO: sync updates excel->kompas=1, kompas->excel=0
+[06:55:37] INFO: sync updates excel->kompas=0, kompas->excel=1

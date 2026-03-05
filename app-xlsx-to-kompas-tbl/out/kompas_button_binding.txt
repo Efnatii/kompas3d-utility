@@ -1,4 +1,4 @@
-KOMPAS-3D button binding (external command)
+﻿KOMPAS-3D button binding (external command)
 -------------------------------------------
 Program : C:\__MY_PROJECTS__\git\kompas3d-utility\app-xlsx-to-kompas-tbl\bin\app-xlsx-to-kompas-tbl.exe
 Arguments: 

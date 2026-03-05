@@ -235,6 +235,7 @@ function Update-KompasConfiguratorUtilities {
             BackupPath = ""
             Added      = 0
             Updated    = 0
+            Removed    = 0
             Changed    = $false
         }
     }
@@ -247,26 +248,45 @@ function Update-KompasConfiguratorUtilities {
 
     $added = 0
     $updated = 0
+    $removed = 0
     $changed = $false
+    $managedPrefix = "Managed by kompas3d-utility"
 
     foreach ($item in $ready) {
-        $description = ""
+        $description = "$managedPrefix ($($item.AppFolder))"
         $existingNode = $null
+        $matchedNodes = New-Object System.Collections.Generic.List[System.Xml.XmlElement]
 
         foreach ($utility in @($group.SelectNodes("Utility"))) {
+            $utilityPath = $utility.GetAttribute("path")
+            $utilityDisplayName = $utility.GetAttribute("displayName")
+            $utilityParams = $utility.GetAttribute("params")
+            $utilityDescription = $utility.GetAttribute("description")
+            $isManagedNode = (
+                -not [string]::IsNullOrWhiteSpace($utilityDescription) -and
+                $utilityDescription.StartsWith($managedPrefix)
+            )
+
             if (
-                $utility.GetAttribute("path") -eq $item.Program -or
+                $utilityPath -eq $item.Program -or
                 (
-                    $utility.GetAttribute("displayName") -eq $item.Name -and
-                    $utility.GetAttribute("params") -eq $item.Arguments
+                    $utilityDisplayName -eq $item.Name -and
+                    $utilityParams -eq $item.Arguments
                 ) -or
                 (
-                    $utility.GetAttribute("description") -eq "Managed by kompas3d-utility ($($item.AppFolder))"
+                    $utilityDescription -eq $description
+                ) -or
+                (
+                    $isManagedNode -and
+                    $utilityDisplayName -eq $item.Name
                 )
             ) {
-                $existingNode = $utility
-                break
+                $matchedNodes.Add($utility) | Out-Null
             }
+        }
+
+        if ($matchedNodes.Count -gt 0) {
+            $existingNode = $matchedNodes[0]
         }
 
         $isNewNode = $false
@@ -290,6 +310,14 @@ function Update-KompasConfiguratorUtilities {
         if ($entryChanged) {
             $changed = $true
         }
+
+        if ($matchedNodes.Count -gt 1) {
+            for ($idx = 1; $idx -lt $matchedNodes.Count; $idx++) {
+                [void]$group.RemoveChild($matchedNodes[$idx])
+                $removed++
+                $changed = $true
+            }
+        }
     }
 
     if (-not $changed) {
@@ -299,6 +327,7 @@ function Update-KompasConfiguratorUtilities {
             BackupPath = ""
             Added      = 0
             Updated    = 0
+            Removed    = 0
             Changed    = $false
         }
     }
@@ -313,6 +342,7 @@ function Update-KompasConfiguratorUtilities {
         BackupPath = $backupPath
         Added      = $added
         Updated    = $updated
+        Removed    = $removed
         Changed    = $true
     }
 }
@@ -522,6 +552,7 @@ $configUpdatePath = ""
 $configBackupPath = ""
 $configAdded = 0
 $configUpdated = 0
+$configRemoved = 0
 
 if (-not $SkipConfiguratorUpdate) {
     try {
@@ -550,6 +581,7 @@ if (-not $SkipConfiguratorUpdate) {
                 $configBackupPath = $configResult.BackupPath
                 $configAdded = $configResult.Added
                 $configUpdated = $configResult.Updated
+                $configRemoved = $configResult.Removed
             }
         }
     }
@@ -634,8 +666,8 @@ if (-not [string]::IsNullOrWhiteSpace($configUpdatePath)) {
 if (-not [string]::IsNullOrWhiteSpace($configBackupPath)) {
     Write-Host "Config backup: $configBackupPath"
 }
-if ($configAdded -gt 0 -or $configUpdated -gt 0) {
-    Write-Host "Config delta: +$configAdded / ~$configUpdated"
+if ($configAdded -gt 0 -or $configUpdated -gt 0 -or $configRemoved -gt 0) {
+    Write-Host "Config delta: +$configAdded / ~$configUpdated / -$configRemoved"
 }
 Write-Host "Clipboard   : $clipboardStatus"
 Write-Host ""
