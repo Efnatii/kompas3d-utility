@@ -62,6 +62,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\selfcheck.ps1
 ## Требования
 
 - Windows
-- KOMPAS-3D COM (`Kompas.Application.5`)
+- KOMPAS-3D COM (`KOMPAS.Application.7`)
 - Microsoft Excel COM (`Excel.Application`)
 - Python 3 + `pywin32`

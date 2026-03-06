@@ -127,8 +127,7 @@ class SyncEngine:
         self.status_file = status_file
 
         self.win32 = None
-        self.kompas5 = None
-        self.kompas7 = None
+        self.kompas_app = None
         self.excel = None
         self.doc_states: dict[str, dict[str, Any]] = {}
         self.doc_state_paths: dict[str, Path] = {}
@@ -500,44 +499,33 @@ class SyncEngine:
         except Exception:
             pass
 
-    def _connect_kompas(self) -> tuple[Any, Any]:
+    def _connect_kompas(self) -> Any:
         self._ensure_pywin32()
-        if self.kompas5 is None:
-            for pid in ("Kompas.Application.5", "KOMPAS.Application.5"):
-                try:
-                    self.kompas5 = self.win32.GetObject(Class=pid)
-                    break
-                except Exception:
-                    continue
-            if self.kompas5 is None:
-                for pid in ("Kompas.Application.5", "KOMPAS.Application.5"):
-                    try:
-                        self.kompas5 = self.win32.Dispatch(pid)
-                        break
-                    except Exception:
-                        continue
-            if self.kompas5 is None:
-                raise RuntimeError("cannot connect to KOMPAS COM")
+        if self.kompas_app is None:
             try:
-                self.kompas5.Visible = True
+                self.kompas_app = self.win32.GetObject(Class="KOMPAS.Application.7")
+            except Exception:
+                self.kompas_app = None
+            if self.kompas_app is None:
+                try:
+                    self.kompas_app = self.win32.Dispatch("KOMPAS.Application.7")
+                except Exception:
+                    self.kompas_app = None
+            if self.kompas_app is None:
+                raise RuntimeError("cannot connect to KOMPAS COM (KOMPAS.Application.7)")
+            try:
+                self.kompas_app.Visible = True
             except Exception:
                 pass
-        if self.kompas7 is None:
-            self.kompas7 = self._safe_get(self.kompas5, "ksGetApplication7")
-            if callable(self.kompas7):
-                try:
-                    self.kompas7 = self.kompas7()
-                except Exception:
-                    self.kompas7 = None
-        return self.kompas5, self.kompas7
+        return self.kompas_app
 
     def _get_active_doc_context(self) -> tuple[Path, Any, Any] | None:
         try:
-            app5, app7 = self._connect_kompas()
+            app = self._connect_kompas()
         except RuntimeError:
             self._wait_once("cannot connect to KOMPAS COM")
             return None
-        doc = self._safe_get(app7, "ActiveDocument") or self._safe_get(app5, "ActiveDocument")
+        doc = self._safe_get(app, "ActiveDocument")
         if doc is None:
             self._wait_once("no active KOMPAS document")
             return None
@@ -893,8 +881,8 @@ class SyncEngine:
             unique_views.append(view)
         views = unique_views
 
-        # Primary path for KOMPAS API7: IDrawingContainer.DrawingTexts -> IDrawingText -> IText.Str
-        from_drawing_texts: list[TextRuntime] = []
+        # API7-only path: IDrawingContainer.DrawingTexts -> IDrawingText -> IText.Str
+        out: list[TextRuntime] = []
         used_refs: set[str] = set()
         for view in views:
             container = self._cast(view, "IDrawingContainer")
@@ -904,20 +892,13 @@ class SyncEngine:
             if drawing_texts is None:
                 continue
 
-            count = self._safe_int(self._safe_get(drawing_texts, "Count"), 0)
-            for idx in range(count):
-                drawing_text = None
-                for raw_idx in (idx, idx + 1):
-                    try:
-                        drawing_text = drawing_texts.DrawingText(raw_idx)
-                        if drawing_text is not None:
-                            break
-                    except Exception:
-                        drawing_text = None
+            for idx, drawing_text in enumerate(self._iter_drawing_texts(drawing_texts)):
                 if drawing_text is None:
                     continue
 
                 text_obj = self._cast(drawing_text, "IText")
+                if text_obj is None:
+                    text_obj = self._safe_get(drawing_text, "Text")
                 if text_obj is None:
                     continue
 
@@ -942,7 +923,7 @@ class SyncEngine:
                     text_id = probe
                 used_refs.add(text_id)
 
-                from_drawing_texts.append(
+                out.append(
                     TextRuntime(
                         text_id=text_id,
                         text=text_value,
@@ -953,41 +934,48 @@ class SyncEngine:
                     )
                 )
 
-        if from_drawing_texts:
-            from_drawing_texts.sort(key=lambda i: (-i.y, i.x, i.text_id))
-            return from_drawing_texts
-
-        sources: list[Any] = []
-        for view in views:
-            sources.append(view)
-            casted = self._cast(view, "ISymbols2DContainer")
-            if casted is not None:
-                sources.append(casted)
-        sources.append(doc2d)
-
-        out: list[TextRuntime] = []
-        used: set[str] = set()
-        collections = ("Texts", "TextObjects", "TextLines", "DrawingTexts", "Notes", "Objects", "Symbols")
-        for source in sources:
-            for cname in collections:
-                collection = self._safe_get(source, cname)
-                if collection is None:
-                    continue
-                for idx, item in enumerate(self._iter_collection(collection)):
-                    text = self._extract_text(item)
-                    if text is None:
-                        continue
-                    x_val, y_val = self._extract_xy(item)
-                    base_id = self._extract_id(item, x_val, y_val, idx)
-                    text_id = base_id
-                    seq = 2
-                    while text_id in used:
-                        text_id = f"{base_id}#{seq}"
-                        seq += 1
-                    used.add(text_id)
-                    out.append(TextRuntime(text_id=text_id, text=text, x=x_val, y=y_val, item=item, update_item=item))
         out.sort(key=lambda i: (-i.y, i.x, i.text_id))
         return out
+
+    def _iter_drawing_texts(self, drawing_texts: Any):
+        if drawing_texts is None:
+            return
+
+        count = self._safe_int(self._safe_get(drawing_texts, "Count"), -1)
+        if count < 0:
+            for item in self._iter_collection(drawing_texts):
+                yield item
+            return
+
+        drawing_text_method = self._safe_get(drawing_texts, "DrawingText")
+        yielded = 0
+        seen: set[str] = set()
+        for raw in range(0, count + 1):
+            item = None
+
+            if callable(drawing_text_method):
+                try:
+                    item = drawing_text_method(raw)
+                except Exception:
+                    item = None
+
+            if item is None:
+                try:
+                    item = drawing_texts.Item(raw)
+                except Exception:
+                    item = None
+
+            if item is None:
+                continue
+
+            key = self._pointer(item) or f"obj:{id(item)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            yield item
+            yielded += 1
+            if yielded >= count:
+                break
 
     def _extract_text(self, item: Any) -> str | None:
         for name in ("Str", "Text", "String", "Content", "Value", "Title", "Name"):
@@ -1369,6 +1357,9 @@ class SyncEngine:
         self._restore_text_appearance(appearance_snapshot)
         self._enforce_size_profile(item, update_item, size_profile)
 
+        if self._is_text_applied(item, expected_text):
+            return True
+
         if update_item is not None:
             self._safe_call(update_item, ("Update", "Refresh", "Redraw"))
             self._restore_text_appearance(appearance_snapshot)
@@ -1583,17 +1574,24 @@ class SyncEngine:
             return
         count = self._safe_int(self._first(collection, ("Count", "Length")), -1)
         if count >= 0:
-            for index in range(count):
+            yielded = 0
+            seen: set[str] = set()
+            for raw in range(0, count + 1):
                 item = None
-                for raw in (index, index + 1):
-                    try:
-                        item = collection.Item(raw)
-                        if item is not None:
-                            break
-                    except Exception:
-                        item = None
-                if item is not None:
-                    yield item
+                try:
+                    item = collection.Item(raw)
+                except Exception:
+                    item = None
+                if item is None:
+                    continue
+                key = self._pointer(item) or f"obj:{id(item)}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield item
+                yielded += 1
+                if yielded >= count:
+                    break
             return
         try:
             for item in collection:
@@ -1758,7 +1756,7 @@ def main(argv: list[str]) -> int:
         log(f"ERROR: {text}")
         if "win32com.client" in text:
             return EXIT_PYWIN32_MISSING
-        if "KOMPAS COM" in text or "Kompas.Application.5" in text:
+        if "KOMPAS COM" in text or "KOMPAS.Application.7" in text:
             return EXIT_KOMPAS_ERROR
         if "Excel COM" in text:
             return EXIT_EXCEL_ERROR

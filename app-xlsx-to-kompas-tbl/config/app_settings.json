@@ -1,9 +1,9 @@
 ﻿{
-    "input_path":  "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\xlsx-to-kompas-tbl\\fixtures\\table_M2.xlsx",
+    "input_path":  "C:\\Users\\Alexandra\\Downloads\\Книга11.xlsx",
     "cell_width_mm":  "30",
-    "table_height_mm":  "64",
-    "table_width_mm":  "390",
-    "mode":  "cell",
+    "table_height_mm":  "24",
+    "table_width_mm":  "300",
+    "mode":  "table",
     "cell_height_mm":  "8",
-    "output_path":  "C:\\Users\\eFnat\\Yandex.Disk-egory.forward\\2 В РАБОТУ 2020\\0006-0403 Смарт Андрей АВР Цветолюбово (0323)\\2 РАБОЧАЯ\\table_M2.tbl"
+    "output_path":  "C:\\Users\\Alexandra\\YandexDisk-egory.forward\\2 В РАБОТУ 2020\\0004-0204 СМАРТ Куринка доработка (0245)\\2 РАБОЧАЯ\\Книга11.tbl"
 }

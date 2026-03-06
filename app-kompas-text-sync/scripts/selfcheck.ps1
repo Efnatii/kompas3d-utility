@@ -69,7 +69,7 @@ else {
     Write-Warn "Excel COM not available."
 }
 
-if (Test-ProgId "Kompas.Application.5") {
+if (Test-ProgId "KOMPAS.Application.7") {
     Write-Info "KOMPAS COM available."
 }
 else {

@@ -923,3 +923,39 @@ RuntimeError: cannot connect to Excel COM: Excel.Application handle unavailable
 [06:45:29] INFO: sync updates excel->kompas=0, kompas->excel=0, excel_failed=1
 [06:45:31] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0
 [06:45:44] INFO: sync updates excel->kompas=0, kompas->excel=1, excel_failed=0
+[09:30:05] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[09:30:05] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[09:30:06] INFO: mapping rebuilt (29 bindings, rows=4, corridor=1.5 mm, excel_priority=0, added=29, removed=0, full_rebuild=True)
+[09:30:30] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0
+[09:33:03] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[09:33:03] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[09:33:04] INFO: sync updates excel->kompas=0, kompas->excel=1, excel_failed=0
+[09:33:19] INFO: sync updates excel->kompas=0, kompas->excel=0, excel_failed=1
+[09:33:21] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0
+[09:33:22] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0
+[10:32:18] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[10:32:18] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[10:32:24] INFO: mapping rebuilt (150 bindings, rows=1, corridor=1.5 mm, excel_priority=27, added=123, removed=2, full_rebuild=True)
+[10:33:07] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0
+[10:33:55] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[10:33:55] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[10:33:58] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[10:33:58] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[10:34:42] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[10:34:42] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[10:34:50] INFO: mapping rebuilt (150 bindings, rows=1, corridor=1.5 mm, excel_priority=0, added=150, removed=0, full_rebuild=True)
+[10:35:40] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[10:35:40] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[10:35:43] INFO: mapping rebuilt (150 bindings, rows=1, corridor=1.5 mm, excel_priority=0, added=150, removed=0, full_rebuild=True)
+[10:47:46] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[10:47:46] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[10:47:51] INFO: mapping rebuilt (152 bindings, rows=5, corridor=1.5 mm, excel_priority=151, added=1, removed=0, full_rebuild=True)
+[10:47:51] INFO: sync updates excel->kompas=2, kompas->excel=0, excel_failed=0
+[10:47:56] INFO: sync updates excel->kompas=0, kompas->excel=0, excel_failed=1
+[10:47:57] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0
+[10:48:29] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0
+[16:01:05] INFO: active drawing -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.cdw
+[16:01:05] INFO: state json -> C:\Users\Alexandra\YandexDisk-egory.forward\2 В РАБОТУ 2020\0004-0204 СМАРТ Куринка доработка (0245)\2 РАБОЧАЯ\0004-0204 ГРЩ (0245) Э3 изм. 03.03.2026.json
+[16:01:30] INFO: mapping rebuilt (445 bindings, rows=42, corridor=1.5 mm, excel_priority=24, added=421, removed=128, full_rebuild=True)
+[16:01:33] INFO: sync updates excel->kompas=9, kompas->excel=0, excel_failed=0
+[16:01:45] INFO: sync updates excel->kompas=1, kompas->excel=0, excel_failed=0

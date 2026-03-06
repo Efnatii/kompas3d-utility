@@ -67,12 +67,12 @@ catch {
 
 $kompasStatus = "COM_NOT_AVAILABLE"
 try {
-    $null = [Runtime.InteropServices.Marshal]::GetActiveObject("Kompas.Application.5")
+    $null = [Runtime.InteropServices.Marshal]::GetActiveObject("KOMPAS.Application.7")
     $kompasStatus = "RUNNING"
 }
 catch {
     try {
-        $null = New-Object -ComObject "Kompas.Application.5"
+        $null = New-Object -ComObject "KOMPAS.Application.7"
         $kompasStatus = "COM_AVAILABLE"
     }
     catch {
