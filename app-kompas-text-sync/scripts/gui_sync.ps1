@@ -25,8 +25,15 @@ $script:SyncProcess = $null
 $script:SyncWatchTimer = $null
 $script:SyncLogRef = $null
 $script:LastEngineLogPath = ""
+$script:RuntimeStatusPath = Join-Path $script:OutDir "sync_runtime_status.json"
 $script:FormAppIcon = $null
 $script:LastLayoutAuditSignature = ""
+$script:SettingsAutosaveTimer = $null
+$script:SettingsAutosaveCtl = $null
+$script:SettingsAutosaveLog = $null
+$script:LastAutosaveSignature = ""
+$script:LastRuntimeStatusWarn = ""
+$script:LastRuntimeStatusWarnAt = [datetime]::MinValue
 
 function Add-Log {
     param(
@@ -89,7 +96,6 @@ function Write-CrashLog {
 function Get-DefaultSettings {
     return [ordered]@{
         corridor_mm = "1.5"
-        poll_ms = "1200"
         sheet_name = "SyncData"
     }
 }
@@ -131,7 +137,6 @@ function Apply-SettingsToUi {
 
     $defaults = Get-DefaultSettings
     $Ctl.corridor.Text = [string]($(if ($null -ne $Settings.corridor_mm) { $Settings.corridor_mm } else { $defaults.corridor_mm }))
-    $Ctl.poll.Text = [string]($(if ($null -ne $Settings.poll_ms) { $Settings.poll_ms } else { $defaults.poll_ms }))
     $Ctl.sheet.Text = [string]($(if ($null -ne $Settings.sheet_name) { $Settings.sheet_name } else { $defaults.sheet_name }))
 }
 
@@ -139,7 +144,6 @@ function Get-UiValues {
     param([hashtable]$Ctl)
     return [ordered]@{
         corridor_mm = $Ctl.corridor.Text.Trim()
-        poll_ms = $Ctl.poll.Text.Trim()
         sheet_name = $Ctl.sheet.Text.Trim()
     }
 }
@@ -147,23 +151,22 @@ function Get-UiValues {
 function Validate-UiValues {
     param(
         [System.Collections.IDictionary]$Values,
-        [System.Windows.Forms.TextBox]$LogBox
+        [System.Windows.Forms.TextBox]$LogBox,
+        [switch]$Silent
     )
 
     $corridor = 0.0
     if (-not [double]::TryParse(($Values.corridor_mm -replace ",", "."), [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$corridor) -or $corridor -le 0) {
-        Add-Log -Box $LogBox -Message "ERROR: corridor_mm должен быть положительным числом."
-        return $false
-    }
-
-    $poll = 0
-    if (-not [int]::TryParse([string]$Values.poll_ms, [ref]$poll) -or $poll -lt 250) {
-        Add-Log -Box $LogBox -Message "ERROR: poll_ms должен быть целым числом >= 250."
+        if (-not $Silent -and $null -ne $LogBox) {
+            Add-Log -Box $LogBox -Message "ERROR: corridor_mm должен быть положительным числом."
+        }
         return $false
     }
 
     if ([string]::IsNullOrWhiteSpace([string]$Values.sheet_name)) {
-        Add-Log -Box $LogBox -Message "ERROR: sheet_name не должен быть пустым."
+        if (-not $Silent -and $null -ne $LogBox) {
+            Add-Log -Box $LogBox -Message "ERROR: sheet_name не должен быть пустым."
+        }
         return $false
     }
 
@@ -207,32 +210,227 @@ function Set-IconButton {
     }
 }
 
+function Set-StatusLabelSafe {
+    param(
+        [object]$StatusLabel,
+        [string]$Text,
+        [System.Drawing.Color]$ForeColor
+    )
+
+    if ($null -eq $StatusLabel -or $StatusLabel -isnot [System.Windows.Forms.Control]) {
+        return $false
+    }
+
+    try {
+        $StatusLabel.Text = $Text
+        $StatusLabel.ForeColor = $ForeColor
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Set-ToolTipSafe {
+    param(
+        [object]$ToolTip,
+        [object]$Control,
+        [string]$Text
+    )
+
+    if ($null -eq $ToolTip -or $null -eq $Control) {
+        return
+    }
+    if ($ToolTip -isnot [System.Windows.Forms.ToolTip]) {
+        return
+    }
+    if ($Control -isnot [System.Windows.Forms.Control]) {
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$Text)) {
+        return
+    }
+
+    try {
+        $ToolTip.SetToolTip($Control, $Text)
+    }
+    catch {
+    }
+}
+
 function Set-SyncStateUi {
     param(
-        [System.Windows.Forms.Button]$ToggleButton,
-        [System.Windows.Forms.Label]$StatusLabel,
-        [System.Windows.Forms.ToolTip]$ToolTip,
+        [object]$ToggleButton,
+        [object]$StatusLabel,
+        [object]$ToolTip,
         [bool]$IsRunning
     )
 
-    if ($null -eq $StatusLabel) {
-        return
-    }
-
     if ($IsRunning) {
-        $StatusLabel.Text = "Статус: синхронизация включена"
-        $StatusLabel.ForeColor = [System.Drawing.Color]::DarkGreen
-        if ($null -ne $ToolTip) {
-            $ToolTip.SetToolTip($ToggleButton, "Остановить синхронизацию")
+        if (-not (Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: синхронизация включена" -ForeColor ([System.Drawing.Color]::DarkGreen))) {
+            return
         }
+        Set-ToolTipSafe -ToolTip $ToolTip -Control $ToggleButton -Text "Остановить синхронизацию"
         return
     }
 
-    $StatusLabel.Text = "Статус: остановлено"
-    $StatusLabel.ForeColor = [System.Drawing.Color]::DarkRed
-    if ($null -ne $ToolTip) {
-        $ToolTip.SetToolTip($ToggleButton, "Включить синхронизацию")
+    if (-not (Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: остановлено" -ForeColor ([System.Drawing.Color]::DarkRed))) {
+        return
     }
+    Set-ToolTipSafe -ToolTip $ToolTip -Control $ToggleButton -Text "Включить синхронизацию"
+}
+
+function Set-SyncStateUiFromRuntime {
+    param(
+        [object]$ToggleButton,
+        [object]$StatusLabel,
+        [object]$ToolTip,
+        [string]$State,
+        [string]$Detail
+    )
+
+    $normalizedState = [string]$State
+    $normalizedDetail = [string]$Detail
+    if ([string]::IsNullOrWhiteSpace($normalizedState)) {
+        Set-SyncStateUi -ToggleButton $ToggleButton -StatusLabel $StatusLabel -ToolTip $ToolTip -IsRunning $true
+        return
+    }
+
+    switch ($normalizedState.ToLowerInvariant()) {
+        "starting" {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: запуск синхронизации..." -ForeColor ([System.Drawing.Color]::DarkSlateBlue)
+        }
+        "syncing" {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: синхронизация активна" -ForeColor ([System.Drawing.Color]::DarkGreen)
+        }
+        "monitoring" {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: ожидание изменений" -ForeColor ([System.Drawing.Color]::DarkOliveGreen)
+        }
+        "waiting_excel" {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: ожидание Excel" -ForeColor ([System.Drawing.Color]::DarkOrange)
+        }
+        "waiting_kompas" {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: ожидание КОМПАС" -ForeColor ([System.Drawing.Color]::DarkOrange)
+        }
+        "warning" {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: предупреждение синхронизации" -ForeColor ([System.Drawing.Color]::DarkOrange)
+        }
+        "error" {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: ошибка синхронизации" -ForeColor ([System.Drawing.Color]::DarkRed)
+        }
+        default {
+            $null = Set-StatusLabelSafe -StatusLabel $StatusLabel -Text "Статус: синхронизация включена" -ForeColor ([System.Drawing.Color]::DarkGreen)
+        }
+    }
+
+    $tip = "Остановить синхронизацию"
+    if (-not [string]::IsNullOrWhiteSpace($normalizedDetail)) {
+        $tip = $tip + "`r`n" + $normalizedDetail
+    }
+    Set-ToolTipSafe -ToolTip $ToolTip -Control $ToggleButton -Text $tip
+}
+
+function Update-SyncStateFromRuntime {
+    param(
+        [object]$ToggleButton,
+        [object]$StatusLabel,
+        [object]$ToolTip,
+        [System.Windows.Forms.TextBox]$LogBox
+    )
+
+    if ($null -eq $script:SyncProcess) {
+        return
+    }
+    if ($script:SyncProcess.HasExited) {
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $script:RuntimeStatusPath -PathType Leaf)) {
+        Set-SyncStateUi -ToggleButton $ToggleButton -StatusLabel $StatusLabel -ToolTip $ToolTip -IsRunning $true
+        return
+    }
+
+    try {
+        $status = Get-Content -LiteralPath $script:RuntimeStatusPath -Raw | ConvertFrom-Json
+        if ($null -eq $status) {
+            return
+        }
+
+        $state = [string]$status.state
+        $detail = [string]$status.detail
+        Set-SyncStateUiFromRuntime -ToggleButton $ToggleButton -StatusLabel $StatusLabel -ToolTip $ToolTip -State $state -Detail $detail
+    }
+    catch {
+        if ($null -ne $LogBox) {
+            $toggleType = if ($null -eq $ToggleButton) { "<null>" } else { $ToggleButton.GetType().FullName }
+            $statusType = if ($null -eq $StatusLabel) { "<null>" } else { $StatusLabel.GetType().FullName }
+            $tipType = if ($null -eq $ToolTip) { "<null>" } else { $ToolTip.GetType().FullName }
+            $warn = "WARN: Не удалось прочитать runtime-status: $($_.Exception.Message) [toggle=$toggleType; status=$statusType; tooltip=$tipType]"
+            $now = Get-Date
+            $isDuplicate = ($script:LastRuntimeStatusWarn -eq $warn -and (($now - $script:LastRuntimeStatusWarnAt).TotalSeconds -lt 6))
+            if (-not $isDuplicate) {
+                Add-Log -Box $LogBox -Message $warn
+                $script:LastRuntimeStatusWarn = $warn
+                $script:LastRuntimeStatusWarnAt = $now
+            }
+        }
+    }
+}
+
+function Save-SettingsIfValid {
+    param(
+        [hashtable]$Ctl,
+        [System.Windows.Forms.TextBox]$LogBox,
+        [switch]$Silent,
+        [switch]$LogSuccess
+    )
+
+    $values = Get-UiValues -Ctl $Ctl
+    if (-not (Validate-UiValues -Values $values -LogBox $LogBox -Silent:$Silent)) {
+        return $false
+    }
+
+    $signature = ($values | ConvertTo-Json -Compress)
+    Save-Settings -Values $values
+    if ($script:LastAutosaveSignature -ne $signature) {
+        $script:LastAutosaveSignature = $signature
+        if ($LogSuccess -and $null -ne $LogBox) {
+            Add-Log -Box $LogBox -Message "INFO: Параметры сохранены автоматически."
+        }
+    }
+    return $true
+}
+
+function Initialize-SettingsAutosave {
+    param(
+        [hashtable]$Ctl,
+        [System.Windows.Forms.TextBox]$LogBox
+    )
+
+    $script:SettingsAutosaveCtl = $Ctl
+    $script:SettingsAutosaveLog = $LogBox
+    if ($null -ne $script:SettingsAutosaveTimer) {
+        try {
+            $script:SettingsAutosaveTimer.Stop()
+            $script:SettingsAutosaveTimer.Dispose()
+        }
+        catch {
+        }
+    }
+    $script:SettingsAutosaveTimer = New-Object System.Windows.Forms.Timer
+    $script:SettingsAutosaveTimer.Interval = 450
+    $script:SettingsAutosaveTimer.Add_Tick({
+            $script:SettingsAutosaveTimer.Stop()
+            $null = Save-SettingsIfValid -Ctl $script:SettingsAutosaveCtl -LogBox $script:SettingsAutosaveLog -Silent
+        })
+}
+
+function Request-SettingsAutosave {
+    if ($null -eq $script:SettingsAutosaveTimer) {
+        return
+    }
+    $script:SettingsAutosaveTimer.Stop()
+    $script:SettingsAutosaveTimer.Start()
 }
 
 function Stop-SyncProcess {
@@ -305,20 +503,27 @@ function Start-SyncProcess {
         if (-not (Validate-UiValues -Values $values -LogBox $LogBox)) {
             return
         }
-        Save-Settings -Values $values
+        $null = Save-SettingsIfValid -Ctl $Ctl -LogBox $LogBox -LogSuccess
 
         if (-not (Test-Path -LiteralPath $script:OutDir)) {
             New-Item -Path $script:OutDir -ItemType Directory -Force | Out-Null
         }
 
         $script:LastEngineLogPath = Join-Path $script:OutDir "sync_engine.log"
+        if (Test-Path -LiteralPath $script:RuntimeStatusPath -PathType Leaf) {
+            try {
+                Remove-Item -LiteralPath $script:RuntimeStatusPath -Force
+            }
+            catch {
+            }
+        }
         $sheetName = [string]$values.sheet_name
         $arguments = @(
             '"' + $script:SyncScriptPath + '"'
             "--corridor-mm $($values.corridor_mm -replace ',', '.')"
-            "--poll-ms $($values.poll_ms)"
             "--sheet-name `"$sheetName`""
             "--log-file `"$script:LastEngineLogPath`""
+            "--status-file `"$script:RuntimeStatusPath`""
         ) -join " "
 
         if ([System.IO.Path]::GetFileName($pythonExe).ToLowerInvariant() -eq "py.exe") {
@@ -365,6 +570,7 @@ function Start-SyncProcess {
                         return
                     }
                     if (-not $script:SyncProcess.HasExited) {
+                        Update-SyncStateFromRuntime -ToggleButton $watchToggleButton -StatusLabel $watchStatusLabel -ToolTip $watchToolTip -LogBox $script:SyncLogRef
                         return
                     }
 
@@ -550,7 +756,7 @@ function Update-CompactUiLayout {
     $actionsY = 102
     $lblActions.Location = New-Object System.Drawing.Point($homeMargin, ($actionsY + 8))
 
-    $iconButtons = @($btnToggle, $btnSave, $btnOpenOut, $btnReset)
+    $iconButtons = @($btnToggle, $btnOpenOut, $btnReset)
     $iconX = [Math]::Max($homeMargin, $lblActions.Right + 6)
     foreach ($actionBtn in $iconButtons) {
         $actionBtn.Location = New-Object System.Drawing.Point($iconX, $actionsY)
@@ -571,30 +777,14 @@ function Update-CompactUiLayout {
     $grp.Size = New-Object System.Drawing.Size($grpWidth, $grpHeight)
 
     $corrLabelX = 10
-    $corrInputX = 140
-    $pollLabelX = 240
-    $pollInputX = 380
-    $pollFits = (($pollInputX + 90 + 10) -le $grp.ClientSize.Width)
+    $corrInputX = 160
 
     $lblCorridor.Location = New-Object System.Drawing.Point($corrLabelX, 28)
     $txtCorridor.Location = New-Object System.Drawing.Point($corrInputX, 24)
     $txtCorridor.Size = New-Object System.Drawing.Size(84, 24)
-
-    if ($pollFits) {
-        $lblPoll.Location = New-Object System.Drawing.Point($pollLabelX, 28)
-        $txtPoll.Location = New-Object System.Drawing.Point($pollInputX, 24)
-        $txtPoll.Size = New-Object System.Drawing.Size(86, 24)
-        $sheetRowY = 62
-    }
-    else {
-        $lblPoll.Location = New-Object System.Drawing.Point($corrLabelX, 58)
-        $txtPoll.Location = New-Object System.Drawing.Point($corrInputX, 54)
-        $txtPoll.Size = New-Object System.Drawing.Size(84, 24)
-        $sheetRowY = 90
-    }
-
+    $sheetRowY = 62
     $lblSheet.Location = New-Object System.Drawing.Point($corrLabelX, $sheetRowY)
-    $sheetInputX = 140
+    $sheetInputX = 160
     $sheetWidth = [Math]::Max(180, $grp.ClientSize.Width - $sheetInputX - 12)
     $txtSheet.Location = New-Object System.Drawing.Point($sheetInputX, ($sheetRowY - 4))
     $txtSheet.Size = New-Object System.Drawing.Size($sheetWidth, 24)
@@ -706,18 +896,13 @@ $btnToggle.Location = New-Object System.Drawing.Point(78, 102)
 $btnToggle.Size = New-Object System.Drawing.Size(34, 30)
 $tabHome.Controls.Add($btnToggle)
 
-$btnSave = New-Object System.Windows.Forms.Button
-$btnSave.Location = New-Object System.Drawing.Point(116, 102)
-$btnSave.Size = New-Object System.Drawing.Size(34, 30)
-$tabHome.Controls.Add($btnSave)
-
 $btnOpenOut = New-Object System.Windows.Forms.Button
-$btnOpenOut.Location = New-Object System.Drawing.Point(154, 102)
+$btnOpenOut.Location = New-Object System.Drawing.Point(116, 102)
 $btnOpenOut.Size = New-Object System.Drawing.Size(34, 30)
 $tabHome.Controls.Add($btnOpenOut)
 
 $btnReset = New-Object System.Windows.Forms.Button
-$btnReset.Location = New-Object System.Drawing.Point(192, 102)
+$btnReset.Location = New-Object System.Drawing.Point(154, 102)
 $btnReset.Size = New-Object System.Drawing.Size(34, 30)
 $tabHome.Controls.Add($btnReset)
 
@@ -728,7 +913,6 @@ $btnExit.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.
 $tabHome.Controls.Add($btnExit)
 
 Set-IconButton -Button $btnToggle -Icon ([System.Drawing.SystemIcons]::Application) -ToolTip $toolTip -TipText "Включить синхронизацию" -FallbackText "SYNC"
-Set-IconButton -Button $btnSave -Icon ([System.Drawing.SystemIcons]::Shield) -ToolTip $toolTip -TipText "Сохранить параметры" -FallbackText "S"
 Set-IconButton -Button $btnOpenOut -Icon ([System.Drawing.SystemIcons]::Information) -ToolTip $toolTip -TipText "Открыть папку out" -FallbackText "O"
 Set-IconButton -Button $btnReset -Icon ([System.Drawing.SystemIcons]::Warning) -ToolTip $toolTip -TipText "Сбросить параметры по умолчанию" -FallbackText "R"
 Set-IconButton -Button $btnExit -Icon ([System.Drawing.SystemIcons]::Error) -ToolTip $toolTip -TipText "Закрыть окно" -FallbackText "X"
@@ -750,17 +934,6 @@ $txtCorridor = New-Object System.Windows.Forms.TextBox
 $txtCorridor.Location = New-Object System.Drawing.Point(140, 24)
 $txtCorridor.Size = New-Object System.Drawing.Size(84, 24)
 $grp.Controls.Add($txtCorridor)
-
-$lblPoll = New-Object System.Windows.Forms.Label
-$lblPoll.Text = "Период опроса, мс:"
-$lblPoll.Location = New-Object System.Drawing.Point(240, 28)
-$lblPoll.AutoSize = $true
-$grp.Controls.Add($lblPoll)
-
-$txtPoll = New-Object System.Windows.Forms.TextBox
-$txtPoll.Location = New-Object System.Drawing.Point(380, 24)
-$txtPoll.Size = New-Object System.Drawing.Size(86, 24)
-$grp.Controls.Add($txtPoll)
 
 $lblSheet = New-Object System.Windows.Forms.Label
 $lblSheet.Text = "Лист Excel:"
@@ -805,7 +978,6 @@ $tabLog.Controls.Add($txtLog)
 
 $controls = @{
     corridor = $txtCorridor
-    poll = $txtPoll
     sheet = $txtSheet
     log = $txtLog
 }
@@ -831,6 +1003,8 @@ catch {
 $settings = Read-Settings
 Apply-SettingsToUi -Settings $settings -Ctl $controls
 Set-SyncStateUi -ToggleButton $btnToggle -StatusLabel $lblStatus -ToolTip $toolTip -IsRunning $false
+Initialize-SettingsAutosave -Ctl $controls -LogBox $txtLog
+$null = Save-SettingsIfValid -Ctl $controls -LogBox $txtLog -Silent
 
 Update-CompactUiLayout
 $tabMain.Add_SelectedIndexChanged({
@@ -858,18 +1032,17 @@ $form.Add_ClientSizeChanged({
         Write-LayoutAuditLog -LogBox $txtLog
     })
 
-$btnSave.Add_Click({
-        $values = Get-UiValues -Ctl $controls
-        if (Validate-UiValues -Values $values -LogBox $txtLog) {
-            Save-Settings -Values $values
-            Add-Log -Box $txtLog -Message "INFO: Настройки сохранены."
-        }
+$txtCorridor.Add_TextChanged({
+        Request-SettingsAutosave
+    })
+$txtSheet.Add_TextChanged({
+        Request-SettingsAutosave
     })
 
 $btnReset.Add_Click({
         $defaults = Get-DefaultSettings
         Apply-SettingsToUi -Settings $defaults -Ctl $controls
-        Save-Settings -Values (Get-UiValues -Ctl $controls)
+        $null = Save-SettingsIfValid -Ctl $controls -LogBox $txtLog -Silent
         Add-Log -Box $txtLog -Message "INFO: Параметры сброшены по умолчанию."
     })
 
@@ -905,9 +1078,15 @@ $form.Add_Shown({
 
 $form.Add_FormClosing({
         Stop-SyncProcess -ToggleButton $btnToggle -StatusLabel $lblStatus -LogBox $null -ToolTip $toolTip
-        $values = Get-UiValues -Ctl $controls
-        if (Validate-UiValues -Values $values -LogBox $txtLog) {
-            Save-Settings -Values $values
+        $null = Save-SettingsIfValid -Ctl $controls -LogBox $txtLog -Silent
+        if ($null -ne $script:SettingsAutosaveTimer) {
+            try {
+                $script:SettingsAutosaveTimer.Stop()
+                $script:SettingsAutosaveTimer.Dispose()
+            }
+            catch {
+            }
+            $script:SettingsAutosaveTimer = $null
         }
         if ($null -ne $script:FormAppIcon) {
             try {
@@ -922,6 +1101,8 @@ $form.Add_FormClosing({
 Add-Log -Box $txtLog -Message "Готово. Нажмите кнопку включения синхронизации."
 Add-Log -Box $txtLog -Message "Excel таблица: <ИмяЧертежа>.xlsx рядом с активным файлом КОМПАС."
 Add-Log -Box $txtLog -Message "JSON статус: <ИмяЧертежа>.json рядом с этой Excel-таблицей."
+Add-Log -Box $txtLog -Message "Синхронизация работает в адаптивном режиме по изменениям."
+Add-Log -Box $txtLog -Message "Параметры сохраняются автоматически при изменении."
 Add-Log -Box $txtLog -Message "Назначение пути JSON вручную отключено, автосохранение включено."
 
 [System.Windows.Forms.Application]::Run($form)

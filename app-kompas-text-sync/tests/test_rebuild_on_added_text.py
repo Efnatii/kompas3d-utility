@@ -15,8 +15,9 @@ class DictWorksheetEngine(SyncEngine):
     def _read_cell(self, ws: dict[tuple[int, int], str], row: int, col: int) -> str:
         return str(ws.get((row, col), ""))
 
-    def _write_cell(self, ws: dict[tuple[int, int], str], row: int, col: int, value: str) -> None:
+    def _write_cell(self, ws: dict[tuple[int, int], str], row: int, col: int, value: str) -> bool:
         ws[(row, col)] = value
+        return True
 
     def _set_red(self, ws: dict[tuple[int, int], str], row: int, col: int, mark: bool) -> bool:  # noqa: ARG002
         return False

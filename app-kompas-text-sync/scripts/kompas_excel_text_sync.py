@@ -26,6 +26,10 @@ XL_NONE = -4142
 STATE_VERSION = 1
 SHEET_DEFAULT = "SyncData"
 LOG_FILE: Path | None = None
+STATUS_HEARTBEAT_SEC = 2.5
+SYNC_SLEEP_ACTIVE_SEC = 0.06
+SYNC_SLEEP_MONITORING_SEC = 0.14
+SYNC_SLEEP_WAITING_SEC = 0.6
 UNBOUND_SCAN_INTERVAL_SEC = 2.0
 AUTOFIT_INTERVAL_SEC = 1.2
 MAX_UNBOUND_SCAN_ROWS = 700
@@ -116,10 +120,11 @@ class ExcelWorkbookReadOnlyError(RuntimeError):
 
 
 class SyncEngine:
-    def __init__(self, corridor_mm: float, poll_ms: int, sheet_name: str):
+    def __init__(self, corridor_mm: float, poll_ms: int, sheet_name: str, status_file: Path | None = None):
         self.corridor_mm = abs(float(corridor_mm))
-        self.poll_ms = max(int(poll_ms), 250)
+        self.poll_ms = max(int(poll_ms), 0)
         self.sheet_name = sheet_name
+        self.status_file = status_file
 
         self.win32 = None
         self.kompas5 = None
@@ -137,21 +142,34 @@ class SyncEngine:
         self.last_unbound_scan_ts = 0.0
         self.last_autofit_ts = 0.0
         self.unbound_marks: dict[str, set[tuple[int, int]]] = {}
+        self.status_state = ""
+        self.status_detail = ""
+        self.status_written_at = 0.0
+        self.status_doc_path = ""
+        self.status_workbook_path = ""
 
     def run(self, once: bool = False) -> int:
         self._ensure_pywin32()
         error_count = 0
+        self._set_runtime_status("starting", "Инициализация движка синхронизации.")
         try:
             while True:
+                tick_activity = False
+                tick_state = "monitoring"
                 try:
-                    self.tick()
+                    tick_result = self.tick()
+                    tick_activity = bool(tick_result.get("activity"))
+                    tick_state = normalize_text(tick_result.get("state", "monitoring"))
+                    self._set_runtime_status(tick_state, normalize_text(tick_result.get("detail", "")))
                     error_count = 0
                 except KeyboardInterrupt:
                     raise
                 except ExcelSessionClosedError as exc:
+                    self._set_runtime_status("waiting_excel", str(exc))
                     log(f"ERROR: {exc}")
                     return EXIT_EXCEL_ERROR
                 except ExcelWorkbookReadOnlyError as exc:
+                    self._set_runtime_status("error", str(exc))
                     log(f"ERROR: {exc}")
                     return EXIT_EXCEL_READONLY
                 except Exception as exc:
@@ -160,29 +178,48 @@ class SyncEngine:
                     tb = traceback.format_exc(limit=4).strip()
                     if tb:
                         log(tb)
+                    text = normalize_text(exc).lower()
+                    if "excel" in text:
+                        self._set_runtime_status("waiting_excel", str(exc))
+                    elif "kompas" in text:
+                        self._set_runtime_status("waiting_kompas", str(exc))
+                    else:
+                        self._set_runtime_status("error", str(exc))
                     if once:
                         return EXIT_USAGE
                     # Keep worker alive on transient COM failures.
                     time.sleep(min(5.0, 0.5 * error_count))
                 if once:
                     return EXIT_OK
-                time.sleep(self.poll_ms / 1000.0)
+                if tick_activity:
+                    time.sleep(SYNC_SLEEP_ACTIVE_SEC)
+                elif tick_state in {"waiting_excel", "waiting_kompas"}:
+                    time.sleep(SYNC_SLEEP_WAITING_SEC)
+                else:
+                    time.sleep(SYNC_SLEEP_MONITORING_SEC)
         finally:
             self._flush_dirty_states(force=True)
+            self._set_runtime_status("stopped", "Процесс синхронизации остановлен.")
 
-    def tick(self) -> None:
+    def tick(self) -> dict[str, Any]:
         context = self._get_active_doc_context()
         if context is None:
             self._flush_dirty_states(force=False)
-            return
+            return {
+                "activity": False,
+                "state": "waiting_kompas",
+                "detail": normalize_text(self.last_wait or "Ожидание активного документа КОМПАС."),
+            }
 
         doc_path, doc2d, active_view = context
+        self.status_doc_path = str(doc_path)
         doc_key = os.path.normcase(str(doc_path))
         if doc_key != self.last_doc:
             self.last_doc = doc_key
             log(f"INFO: active drawing -> {doc_path}")
 
         workbook_path = doc_path.with_suffix(".xlsx")
+        self.status_workbook_path = str(workbook_path)
         normalized_workbook_path = self._normalize_path(workbook_path)
         cached_for_doc = (
             self.active_workbook is not None
@@ -216,7 +253,11 @@ class SyncEngine:
         if not elements:
             self._wait_once("no text elements found in active drawing")
             self._save_doc_state_if_needed(doc_state, state_file, force=False)
-            return
+            return {
+                "activity": False,
+                "state": "waiting_kompas",
+                "detail": normalize_text(self.last_wait or "В активном документе нет текстовых элементов."),
+            }
         self.last_wait = ""
 
         snapshots = [TextElement(text_id=e.text_id, text=e.text, x=e.x, y=e.y) for e in elements]
@@ -263,6 +304,33 @@ class SyncEngine:
             doc_state["updated_at"] = datetime.now(timezone.utc).isoformat()
             doc_state["_dirty"] = True
         self._save_doc_state_if_needed(doc_state, state_file, force=False)
+
+        excel_to_kompas = int(sync_result.get("excel_to_kompas", 0))
+        kompas_to_excel = int(sync_result.get("kompas_to_excel", 0))
+        excel_failed = int(sync_result.get("excel_failed", 0))
+        activity = bool(
+            must_rebuild
+            or excel_changed
+            or kompas_changed
+            or state_changed
+            or excel_to_kompas > 0
+            or kompas_to_excel > 0
+            or excel_failed > 0
+        )
+        if excel_failed > 0:
+            state = "warning"
+            detail = f"Не удалось применить Excel->КОМПАС: {excel_failed}."
+        elif excel_to_kompas > 0 or kompas_to_excel > 0:
+            state = "syncing"
+            detail = f"Excel->КОМПАС: {excel_to_kompas}, КОМПАС->Excel: {kompas_to_excel}."
+        else:
+            state = "monitoring"
+            detail = "Ожидание изменений в Excel/КОМПАС."
+        return {
+            "activity": activity,
+            "state": state,
+            "detail": detail,
+        }
 
     def _ensure_pywin32(self) -> None:
         if self.win32 is not None:
@@ -399,6 +467,38 @@ class SyncEngine:
         if reason != self.last_wait:
             self.last_wait = reason
             log(f"INFO: waiting - {reason}")
+
+    def _set_runtime_status(self, state: str, detail: str = "") -> None:
+        if self.status_file is None:
+            return
+        state = normalize_text(state).strip() or "monitoring"
+        detail = normalize_text(detail).strip()
+        now = time.time()
+        if (
+            state == self.status_state
+            and detail == self.status_detail
+            and (now - self.status_written_at) < STATUS_HEARTBEAT_SEC
+        ):
+            return
+
+        payload = {
+            "state": state,
+            "detail": detail,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "doc_path": self.status_doc_path,
+            "workbook_path": self.status_workbook_path,
+            "pid": os.getpid(),
+        }
+        try:
+            self.status_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.status_file.with_suffix(self.status_file.suffix + ".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, self.status_file)
+            self.status_state = state
+            self.status_detail = detail
+            self.status_written_at = now
+        except Exception:
+            pass
 
     def _connect_kompas(self) -> tuple[Any, Any]:
         self._ensure_pywin32()
@@ -698,7 +798,7 @@ class SyncEngine:
                 last_exc = exc
                 if self._is_excel_session_lost(exc):
                     self.excel = None
-                    raise ExcelSessionClosedError("Excel Р·Р°РєСЂС‹С‚. РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ РѕСЃС‚Р°РЅРѕРІР»РµРЅР°.") from exc
+                    raise ExcelSessionClosedError("Excel закрыт. Синхронизация остановлена.") from exc
                 if self._is_excel_busy_error(exc):
                     if attempt + 1 < retries and delay_sec > 0:
                         time.sleep(delay_sec)
@@ -968,9 +1068,9 @@ class SyncEngine:
         excel_priority_cells = 0
         for row, col in clear_cells:
             if self._read_cell(ws, row, col):
-                self._write_cell(ws, row, col, "")
-                excel_changed = True
-                autofit_needed = True
+                if self._write_cell(ws, row, col, ""):
+                    excel_changed = True
+                    autofit_needed = True
             self._set_red(ws, row, col, False)
 
         for cell in layout:
@@ -988,10 +1088,10 @@ class SyncEngine:
 
             current_excel = self._read_cell(ws, cell.row, cell.col)
             if current_excel != target_excel:
-                self._write_cell(ws, cell.row, cell.col, target_excel)
-                excel_changed = True
-                autofit_needed = True
-            current_excel = target_excel
+                if self._write_cell(ws, cell.row, cell.col, target_excel):
+                    excel_changed = True
+                    autofit_needed = True
+                    current_excel = target_excel
 
             self._set_red(ws, cell.row, cell.col, False)
             bindings.append(
@@ -1026,6 +1126,7 @@ class SyncEngine:
         state_changed = False
         autofit_needed = False
         e2k = 0
+        e2k_failed = 0
         k2e = 0
         missing = 0
         for b in doc_state.get("bindings", []):
@@ -1036,7 +1137,10 @@ class SyncEngine:
             if item is None:
                 missing += 1
                 continue
-            cur_excel = self._read_cell(ws, row, col)
+            cur_excel, excel_read_ok = self._try_read_cell(ws, row, col)
+            if not excel_read_ok:
+                # Keep last known Excel value on transient COM read failures to avoid false conflicts.
+                cur_excel = normalize_text(b.get("last_excel", ""))
             cur_kompas = normalize_text(item.text)
             action = choose_sync_action(
                 last_excel=normalize_text(b.get("last_excel", "")),
@@ -1052,13 +1156,20 @@ class SyncEngine:
                     autofit_needed = True
                     e2k += 1
                     state_changed = True
+                else:
+                    e2k_failed += 1
+                    # Keep previous markers to retry Excel -> KOMPAS on the very next tick.
+                    continue
             elif action == "kompas_to_excel":
-                self._write_cell(ws, row, col, cur_kompas)
-                cur_excel = cur_kompas
-                excel_changed = True
-                autofit_needed = True
-                k2e += 1
-                state_changed = True
+                if self._write_cell(ws, row, col, cur_kompas):
+                    cur_excel = cur_kompas
+                    excel_changed = True
+                    autofit_needed = True
+                    k2e += 1
+                    state_changed = True
+                else:
+                    # Keep previous markers to retry KOMPAS -> Excel on the next tick.
+                    continue
             prev_last_excel = normalize_text(b.get("last_excel", ""))
             prev_last_kompas = normalize_text(b.get("last_kompas", ""))
             b["last_excel"] = cur_excel
@@ -1068,13 +1179,16 @@ class SyncEngine:
         if missing > 0:
             doc_state["signature"] = ""
             state_changed = True
-        if e2k > 0 or k2e > 0:
-            log(f"INFO: sync updates excel->kompas={e2k}, kompas->excel={k2e}")
+        if e2k > 0 or k2e > 0 or e2k_failed > 0:
+            log(f"INFO: sync updates excel->kompas={e2k}, kompas->excel={k2e}, excel_failed={e2k_failed}")
         return {
             "excel_changed": excel_changed,
             "kompas_changed": kompas_changed,
             "state_changed": state_changed,
             "autofit_needed": autofit_needed,
+            "excel_to_kompas": e2k,
+            "kompas_to_excel": k2e,
+            "excel_failed": e2k_failed,
         }
 
     def _mark_unbound(self, doc_key: str, ws: Any, bindings: list[dict[str, Any]], force: bool = False) -> bool:
@@ -1171,31 +1285,76 @@ class SyncEngine:
 
     def _set_text(self, item: Any, value: str, update_item: Any | None = None) -> bool:
         value = normalize_text(value)
-        appearance_snapshot, appearance_baseline = self._capture_text_appearance(item, update_item)
+        appearance_snapshot = self._capture_text_appearance(item, update_item)
+        size_profile = self._build_non_default_size_profile(appearance_snapshot)
+
+        # Prefer in-place replace operations: they usually keep font/size/style intact.
+        if self._try_replace_text_preserve_format(item, update_item, value):
+            return self._finalize_text_update(item, update_item, value, appearance_snapshot, size_profile)
 
         # Text-only sync: write string payload and then restore appearance properties.
         if self._safe_set(item, "Str", value):
-            return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
+            return self._finalize_text_update(item, update_item, value, appearance_snapshot, size_profile)
 
         text_obj = self._cast(item, "IText")
         if text_obj is not None:
             try:
                 text_obj.Str = value
-                return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
+                return self._finalize_text_update(item, update_item, value, appearance_snapshot, size_profile)
             except Exception:
                 pass
 
         text_obj = self._safe_get(item, "Text")
         if self._safe_set(text_obj, "Str", value):
-            return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
+            return self._finalize_text_update(item, update_item, value, appearance_snapshot, size_profile)
 
         nested_cast = self._cast(text_obj, "IText")
         if nested_cast is not None:
             try:
                 nested_cast.Str = value
-                return self._finalize_text_update(item, update_item, value, appearance_snapshot, appearance_baseline)
+                return self._finalize_text_update(item, update_item, value, appearance_snapshot, size_profile)
             except Exception:
                 pass
+        return False
+
+    def _try_replace_text_preserve_format(self, item: Any, update_item: Any | None, value: str) -> bool:
+        candidates = [
+            item,
+            self._cast(item, "IText"),
+            self._safe_get(item, "Text"),
+            update_item,
+            self._cast(update_item, "IText"),
+            self._safe_get(update_item, "Text"),
+        ]
+        seen: list[Any] = []
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            if any(candidate is known for known in seen):
+                continue
+            seen.append(candidate)
+
+        for text_obj in seen:
+            current = normalize_text(self._safe_get(text_obj, "Str"))
+            if current == value:
+                return True
+            if not current:
+                continue
+
+            try:
+                result = self._safe_call(text_obj, ("Replace",), args=(current, value, False, False, True))
+                if bool(result):
+                    return True
+            except Exception:
+                pass
+
+            try:
+                result = self._safe_call(text_obj, ("ReplaceStr",), args=(0, current, value, False, False, True))
+                if bool(result):
+                    return True
+            except Exception:
+                pass
+
         return False
 
     def _finalize_text_update(
@@ -1204,38 +1363,30 @@ class SyncEngine:
         update_item: Any | None,
         expected_text: str,
         appearance_snapshot: list[tuple[Any, str, Any]],
-        appearance_baseline: dict[str, Any],
+        size_profile: dict[str, Any],
     ) -> bool:
-        # First restore appearance without forcing update; this avoids size resets for many entities.
+        # Restore style before/after commit to avoid text-size/style resets.
         self._restore_text_appearance(appearance_snapshot)
-        self._enforce_appearance_after_update(item, update_item, appearance_baseline)
-        if self._is_text_applied(item, expected_text):
-            return True
+        self._enforce_size_profile(item, update_item, size_profile)
 
-        # Fallback only when required: some entities need explicit update to commit text change.
         if update_item is not None:
-            self._safe_call(update_item, ("Update", "Refresh", "Rebuild"))
+            self._safe_call(update_item, ("Update", "Refresh", "Redraw"))
             self._restore_text_appearance(appearance_snapshot)
-            self._enforce_appearance_after_update(item, update_item, appearance_baseline)
-            if self._is_text_applied(item, expected_text):
-                return True
+            self._enforce_size_profile(item, update_item, size_profile)
 
         return self._is_text_applied(item, expected_text)
 
-    def _capture_text_appearance(self, item: Any, update_item: Any | None) -> tuple[list[tuple[Any, str, Any]], dict[str, Any]]:
+    def _capture_text_appearance(self, item: Any, update_item: Any | None) -> list[tuple[Any, str, Any]]:
         targets = self._collect_appearance_targets(item, update_item)
 
         snapshot: list[tuple[Any, str, Any]] = []
-        baseline: dict[str, Any] = {}
         for target in targets:
             for name in APPEARANCE_PROPERTIES:
                 has_attr, value = self._safe_get_with_presence(target, name)
                 if not has_attr:
                     continue
                 snapshot.append((target, name, value))
-                if name not in baseline and self._is_scalar_appearance_value(value):
-                    baseline[name] = value
-        return snapshot, baseline
+        return snapshot
 
     def _restore_text_appearance(self, snapshot: list[tuple[Any, str, Any]]) -> None:
         for obj, name, value in snapshot:
@@ -1243,51 +1394,21 @@ class SyncEngine:
 
     def _collect_appearance_targets(self, item: Any, update_item: Any | None) -> list[Any]:
         targets: list[Any] = []
-        queue: list[tuple[Any, int]] = [
-            (item, 0),
-            (self._safe_get(item, "Text"), 0),
-            (update_item, 0),
-            (self._safe_get(update_item, "Text"), 0),
+        queue: list[Any] = [
+            item,
+            self._safe_get(item, "Text"),
+            update_item,
+            self._safe_get(update_item, "Text"),
+            self._cast(item, "IText"),
+            self._cast(update_item, "IText"),
         ]
-        nested_names = (
-            "Text",
-            "TextStyle",
-            "Style",
-            "Font",
-            "Paragraph",
-            "Format",
-            "Param",
-            "Params",
-            "Properties",
-            "TextLine",
-            "TextLines",
-            "Lines",
-            "Items",
-        )
-        max_depth = 3
-
         while queue:
-            base, depth = queue.pop(0)
+            base = queue.pop(0)
             if base is None:
                 continue
             if any(base is known for known in targets):
                 continue
             targets.append(base)
-            if depth >= max_depth:
-                continue
-
-            for name in nested_names:
-                nested = self._safe_get(base, name)
-                if nested is not None:
-                    queue.append((nested, depth + 1))
-
-                called = self._safe_call(base, (name,), args=())
-                if called is not None:
-                    queue.append((called, depth + 1))
-
-            cast_text = self._cast(base, "IText")
-            if cast_text is not None:
-                queue.append((cast_text, depth + 1))
 
             for collection_name in ("TextLines", "Lines", "Items"):
                 collection = self._safe_get(base, collection_name)
@@ -1296,35 +1417,50 @@ class SyncEngine:
                 for idx, entry in enumerate(self._iter_collection(collection)):
                     if idx >= 8:
                         break
-                    queue.append((entry, depth + 1))
+                    if entry is not None and not any(entry is known for known in targets):
+                        queue.append(entry)
 
         return targets
 
-    def _enforce_appearance_after_update(self, item: Any, update_item: Any | None, baseline: dict[str, Any]) -> None:
-        if not baseline:
+    def _build_non_default_size_profile(self, snapshot: list[tuple[Any, str, Any]]) -> dict[str, Any]:
+        profile: dict[str, Any] = {}
+        for _, name, value in snapshot:
+            if name not in SIZE_PROPERTIES:
+                continue
+            if not self._is_scalar_appearance_value(value):
+                continue
+            if self._is_default_size_value(value):
+                continue
+            if name not in profile:
+                profile[name] = value
+        return profile
+
+    def _enforce_size_profile(self, item: Any, update_item: Any | None, size_profile: dict[str, Any]) -> None:
+        if not size_profile:
             return
         targets = self._collect_appearance_targets(item, update_item)
         restored_props: list[str] = []
         for target in targets:
-            for name in APPEARANCE_PROPERTIES:
-                if name not in baseline:
+            for name, desired in size_profile.items():
+                if not self._is_scalar_appearance_value(desired):
                     continue
                 has_attr, current = self._safe_get_with_presence(target, name)
                 if not has_attr:
                     continue
-                desired = baseline[name]
                 if self._appearance_values_equal(current, desired):
                     continue
-                if self._is_scalar_appearance_value(desired):
-                    if self._safe_set(target, name, desired):
-                        restored_props.append(name)
+                # Do not overwrite explicit non-default sizes, only recover dropped defaults.
+                if self._is_scalar_appearance_value(current) and not self._is_default_size_value(current):
+                    continue
+                if self._safe_set(target, name, desired):
+                    restored_props.append(name)
 
         if restored_props:
             unique = sorted(set(restored_props))
             preview = ", ".join(unique[:6])
             if len(unique) > 6:
-                preview = preview + ", ..."
-            log(f"INFO: restored text appearance -> {preview}")
+                preview += ", ..."
+            log(f"INFO: restored text size profile -> {preview}")
 
     def _is_text_applied(self, item: Any, expected_text: str) -> bool:
         current = self._extract_text(item)
@@ -1368,14 +1504,14 @@ class SyncEngine:
         except Exception:
             return False
 
-    def _read_cell(self, ws: Any, row: int, col: int) -> str:
+    def _try_read_cell(self, ws: Any, row: int, col: int) -> tuple[str, bool]:
         for attempt in range(EXCEL_CELL_IO_RETRIES):
             try:
                 cell = ws.Cells(row, col)
                 value = self._safe_get(cell, "Value2")
                 if value is None:
                     value = self._safe_get(cell, "Value")
-                return normalize_text(value)
+                return normalize_text(value), True
             except Exception as exc:
                 if self._is_excel_busy_error(exc) and attempt + 1 < EXCEL_CELL_IO_RETRIES:
                     time.sleep(EXCEL_CELL_IO_RETRY_DELAY_SEC)
@@ -1385,16 +1521,22 @@ class SyncEngine:
                     self.active_workbook = None
                     self.active_sheet = None
                     self.active_workbook_path = ""
-                return ""
-        return ""
+                return "", False
+        return "", False
 
-    def _write_cell(self, ws: Any, row: int, col: int, value: str) -> None:
+    def _read_cell(self, ws: Any, row: int, col: int) -> str:
+        value, _ = self._try_read_cell(ws, row, col)
+        return value
+
+    def _write_cell(self, ws: Any, row: int, col: int, value: str) -> bool:
         for attempt in range(EXCEL_CELL_IO_RETRIES):
             try:
                 cell = ws.Cells(row, col)
-                if not self._safe_set(cell, "Value2", value):
-                    self._safe_set(cell, "Value", value)
-                return
+                if self._safe_set(cell, "Value2", value):
+                    return True
+                if self._safe_set(cell, "Value", value):
+                    return True
+                return False
             except Exception as exc:
                 if self._is_excel_busy_error(exc) and attempt + 1 < EXCEL_CELL_IO_RETRIES:
                     time.sleep(EXCEL_CELL_IO_RETRY_DELAY_SEC)
@@ -1404,7 +1546,8 @@ class SyncEngine:
                     self.active_workbook = None
                     self.active_sheet = None
                     self.active_workbook_path = ""
-                return
+                return False
+        return False
 
     def _save_workbook(self, wb: Any) -> None:
         for attempt in range(EXCEL_SAVE_RETRIES):
@@ -1424,9 +1567,8 @@ class SyncEngine:
                 return
 
     def _refresh_kompas_after_text_sync(self, active_view: Any, doc2d: Any) -> None:
-        # Keep redraw lightweight; avoid full rebuild that can alter text appearance.
-        self._safe_call(active_view, ("Refresh", "Redraw", "UpdateDisplay"))
-        self._safe_call(doc2d, ("Refresh", "Redraw", "UpdateDisplay"))
+        self._safe_call(active_view, ("Update", "Refresh", "Redraw", "UpdateDisplay"))
+        self._safe_call(doc2d, ("Update", "Refresh", "Redraw", "UpdateDisplay"))
 
     def _cast(self, obj: Any, target_type: str) -> Any:
         if self.win32 is None or obj is None:
@@ -1571,11 +1713,13 @@ class SyncEngine:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync KOMPAS drawing texts with Excel via COM.")
     parser.add_argument("--corridor-mm", type=float, default=1.0, help="Vertical grouping corridor in mm.")
-    parser.add_argument("--poll-ms", type=int, default=1200, help="Sync polling period in milliseconds.")
+    # Backward compatibility: legacy option, ignored in adaptive sync mode.
+    parser.add_argument("--poll-ms", type=int, default=0, help=argparse.SUPPRESS)
     # Backward compatibility: ignored, state file is now always <workbook>.json.
     parser.add_argument("--state-file", default="", help=argparse.SUPPRESS)
     parser.add_argument("--sheet-name", default=SHEET_DEFAULT, help="Excel worksheet name.")
     parser.add_argument("--log-file", default="", help="Optional log file path.")
+    parser.add_argument("--status-file", default="", help="Optional runtime status json path.")
     parser.add_argument("--once", action="store_true", help="Execute one tick and exit.")
     return parser.parse_args(argv)
 
@@ -1593,11 +1737,20 @@ def main(argv: list[str]) -> int:
         except Exception:
             LOG_FILE = None
 
+    status_file: Path | None = None
+    if str(args.status_file).strip():
+        try:
+            status_file = Path(args.status_file).expanduser().resolve()
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            status_file = None
+
     try:
         engine = SyncEngine(
             corridor_mm=args.corridor_mm,
             poll_ms=args.poll_ms,
             sheet_name=args.sheet_name.strip(),
+            status_file=status_file,
         )
         return engine.run(once=bool(args.once))
     except RuntimeError as exc:
