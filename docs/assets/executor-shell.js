@@ -154,6 +154,36 @@ function unwrapEnvelope(payload) {
   return payload;
 }
 
+function extractApiError(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  if (payload.error && typeof payload.error === "object") {
+    return payload.error;
+  }
+  if (payload.payload && typeof payload.payload === "object" && payload.payload.error) {
+    return payload.payload.error;
+  }
+  return null;
+}
+
+function formatHttpError(action, response, payload) {
+  const apiError = extractApiError(payload);
+  if (apiError?.code === "pairing_token_invalid") {
+    return `${action}: invalid pairing token`;
+  }
+  if (apiError?.code === "origin_not_allowed") {
+    return `${action}: origin is not allowed`;
+  }
+  if (apiError?.code === "origin_missing") {
+    return `${action}: origin header is missing`;
+  }
+  if (apiError?.message) {
+    return `${action}: ${apiError.message}`;
+  }
+  return `${action} ${response.status}`;
+}
+
 class WebBridgeClient {
   constructor({ baseUrl, pairingToken, clientName, uiVersion }) {
     this.baseUrl = String(baseUrl || "").replace(/\/+$/, "");
@@ -200,7 +230,7 @@ class WebBridgeClient {
       }),
     });
     if (!response.ok) {
-      throw new Error(`session/register ${response.status}`);
+      throw new Error(formatHttpError("session/register", response, payload));
     }
 
     const registered = unwrapEnvelope(payload);
@@ -283,7 +313,11 @@ class WebBridgeClient {
 
     const execution = unwrapEnvelope(payload);
     if (!response.ok || !execution?.success) {
-      const errorMessage = execution?.error?.message || execution?.error?.code || response.status;
+      const errorMessage = execution?.error?.message
+        || execution?.error?.code
+        || extractApiError(payload)?.message
+        || extractApiError(payload)?.code
+        || response.status;
       throw new Error(`${commandId} failed: ${errorMessage}`);
     }
     return execution;
@@ -446,6 +480,7 @@ function createExecutorShell({ modules }) {
     runtimeReady: false,
     runtimeVersion: "",
     activeModuleId: orderedModules[0].id,
+    connectPromise: null,
   };
 
   function setBadge(element, label, active) {
@@ -481,6 +516,10 @@ function createExecutorShell({ modules }) {
     ui.pairingToken.value = query.pairingToken || DEFAULT_EXECUTOR_SETTINGS.pairingToken;
     ui.workspaceRoot.value = query.workspaceRoot || stored.workspaceRoot || DEFAULT_EXECUTOR_SETTINGS.workspaceRoot;
     return query.autoConnect;
+  }
+
+  function getEffectivePairingToken() {
+    return ui.pairingToken.value.trim() || DEFAULT_EXECUTOR_SETTINGS.pairingToken;
   }
 
   function getBridgeState() {
@@ -599,7 +638,7 @@ function createExecutorShell({ modules }) {
       },
       getBridgeState,
       getUtilityUrl: () => ui.utilityUrl.value.trim(),
-      getPairingToken: () => ui.pairingToken.value.trim(),
+      getPairingToken: () => getEffectivePairingToken(),
       getWorkspaceRoot: () => ui.workspaceRoot.value.trim(),
       resolveWorkspacePath,
       getProfileId: () => EXECUTOR_PROFILE_ID,
@@ -863,7 +902,7 @@ function createExecutorShell({ modules }) {
 
     const effective = await state.bridge.fetchJson("/config/effective");
     if (!effective.response.ok) {
-      throw new Error(`/config/effective ${effective.response.status}`);
+      throw new Error(formatHttpError("/config/effective", effective.response, effective.payload));
     }
 
     const effectiveResponse = unwrapEnvelope(effective.payload);
@@ -879,7 +918,7 @@ function createExecutorShell({ modules }) {
     });
     const update = unwrapEnvelope(applied.payload);
     if (!applied.response.ok || !update?.applied) {
-      throw new Error(update?.message || `/config/load ${applied.response.status}`);
+      throw new Error(update?.message || formatHttpError("/config/load", applied.response, applied.payload));
     }
 
     state.runtimeReady = true;
@@ -892,31 +931,64 @@ function createExecutorShell({ modules }) {
   }
 
   async function connectBridge() {
-    persistSettings();
-
-    if (state.bridge) {
-      await disconnectBridge();
+    if (state.connectPromise) {
+      return state.connectPromise;
     }
 
-    setBadge(ui.bridgeBadge, "bridge connect", false);
-    setBadge(ui.runtimeBadge, "runtime idle", false);
-    ui.bridgeMeta.textContent = "Регистрация UI-сессии...";
-    ui.runtimeMeta.textContent = "Runtime ещё не загружен.";
-    state.runtimeReady = false;
+    state.connectPromise = (async () => {
+      persistSettings();
 
-    const bridge = new WebBridgeClient({
-      baseUrl: ui.utilityUrl.value.trim(),
-      pairingToken: ui.pairingToken.value.trim(),
-      clientName: DEFAULT_EXECUTOR_SETTINGS.clientName,
-      uiVersion: DEFAULT_EXECUTOR_SETTINGS.uiVersion,
-    });
-    const registration = await bridge.connect();
-    state.bridge = bridge;
-    setBadge(ui.bridgeBadge, "bridge online", true);
-    ui.bridgeMeta.textContent = `session=${registration.sessionId} | heartbeat=${registration.heartbeatIntervalSeconds}s`;
-    appendLog("shell", "bridge-connected", registration.sessionId);
-    emit("bridge-connected", { registration });
-    await loadRuntime();
+      if (state.bridge) {
+        await disconnectBridge();
+      }
+
+      setBadge(ui.bridgeBadge, "bridge connect", false);
+      setBadge(ui.runtimeBadge, "runtime idle", false);
+      ui.bridgeMeta.textContent = "Регистрация UI-сессии...";
+      ui.runtimeMeta.textContent = "Runtime ещё не загружен.";
+      state.runtimeReady = false;
+      ui.connectButton.disabled = true;
+
+      const createBridge = (pairingToken) => new WebBridgeClient({
+        baseUrl: ui.utilityUrl.value.trim(),
+        pairingToken,
+        clientName: DEFAULT_EXECUTOR_SETTINGS.clientName,
+        uiVersion: DEFAULT_EXECUTOR_SETTINGS.uiVersion,
+      });
+
+      const requestedToken = getEffectivePairingToken();
+      const bootstrapToken = DEFAULT_EXECUTOR_SETTINGS.pairingToken;
+      let bridge = createBridge(requestedToken);
+      let registration;
+
+      try {
+        registration = await bridge.connect();
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (!message.includes("invalid pairing token") || requestedToken === bootstrapToken) {
+          throw error;
+        }
+
+        appendLog("shell", "bootstrap-token-retry", bootstrapToken);
+        ui.pairingToken.value = bootstrapToken;
+        bridge = createBridge(bootstrapToken);
+        registration = await bridge.connect();
+      }
+
+      state.bridge = bridge;
+      setBadge(ui.bridgeBadge, "bridge online", true);
+      ui.bridgeMeta.textContent = `session=${registration.sessionId} | heartbeat=${registration.heartbeatIntervalSeconds}s`;
+      appendLog("shell", "bridge-connected", registration.sessionId);
+      emit("bridge-connected", { registration });
+      await loadRuntime();
+    })();
+
+    try {
+      await state.connectPromise;
+    } finally {
+      state.connectPromise = null;
+      ui.connectButton.disabled = false;
+    }
   }
 
   async function disconnectBridge() {
