@@ -1,0 +1,4 @@
+{"ts":"2026-03-10T07:28:35.670Z","type":"verbose","text":"[DOM] Password field is not contained in a form: (More info: https://www.chromium.org/developers/design-documents/create-amazing-password-forms) %o"}
+{"ts":"2026-03-10T07:28:35.838Z","type":"error","text":"Failed to load resource: the server responded with a status of 400 (Bad Request)"}
+{"ts":"2026-03-10T07:28:36.181Z","type":"error","text":"Failed to load resource: the server responded with a status of 400 (Bad Request)"}
+{"ts":"2026-03-10T07:29:06.277Z","type":"driver-error","text":"TimeoutError: page.waitForFunction: Timeout 30000ms exceeded."}

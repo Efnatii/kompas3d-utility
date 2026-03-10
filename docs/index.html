@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KOMPAS Pages</title>
+  <link rel="stylesheet" href="./assets/app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail" aria-label="Утилиты">
+      <div class="rail__brand">
+        <span class="rail__mark">K</span>
+        <div>
+          <strong>KOMPAS</strong>
+          <span>Pages</span>
+        </div>
+      </div>
+      <button class="rail__tab is-active" type="button" data-tab="xlsx">
+        <span>XLSX</span>
+        <small>TBL</small>
+      </button>
+      <button class="rail__tab" type="button" data-tab="text-sync">
+        <span>TEXT</span>
+        <small>SYNC</small>
+      </button>
+      <button class="rail__tab" type="button" data-tab="queue">
+        <span>QUEUE</span>
+        <small>TODO</small>
+      </button>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <h1>XLSX → KOMPAS TBL</h1>
+          <p>Статика для Github Pages. Парсинг XLSX в браузере, экспорт в активный 2D документ через WebBridge.Utility.</p>
+        </div>
+        <div class="topbar__status">
+          <span class="badge" id="bridge-badge">offline</span>
+          <span class="badge badge--dim" id="kompas-badge">doc ?</span>
+        </div>
+      </header>
+
+      <section class="panel panel--bridge">
+        <div class="panel__head">
+          <h2>Bridge</h2>
+          <button class="button button--ghost" type="button" id="refresh-status-button">Обновить</button>
+        </div>
+        <div class="bridge-grid">
+          <label class="field">
+            <span>Utility URL</span>
+            <input id="utility-url" type="text" spellcheck="false" value="http://127.0.0.1:38741">
+          </label>
+          <label class="field">
+            <span>Pairing token</span>
+            <input id="pairing-token" type="password" spellcheck="false" value="kompas-pages-local">
+          </label>
+          <div class="bridge-actions">
+            <button class="button" type="button" id="connect-button">Connect</button>
+            <button class="button button--ghost" type="button" id="disconnect-button">Disconnect</button>
+          </div>
+        </div>
+        <div class="bridge-meta">
+          <span id="bridge-meta">Сессия не зарегистрирована.</span>
+          <span id="kompas-meta">Статус KOMPAS не запрошен.</span>
+        </div>
+      </section>
+
+      <section class="tab tab--active" data-panel="xlsx">
+        <div class="content-grid">
+          <section class="panel">
+            <div class="panel__head">
+              <h2>Исходник</h2>
+              <label class="button button--ghost file-button" for="xlsx-file">Открыть XLSX</label>
+            </div>
+            <input id="xlsx-file" type="file" accept=".xlsx,.xlsm,.xlsb,.xls" hidden>
+            <div class="meta-list">
+              <div><span>Файл</span><strong id="file-name">не выбран</strong></div>
+              <div><span>Лист</span><strong id="sheet-name">-</strong></div>
+              <div><span>Матрица</span><strong id="matrix-size">0 × 0</strong></div>
+            </div>
+            <div class="divider"></div>
+            <div class="mode-switch" role="radiogroup" aria-label="Режим геометрии">
+              <button class="mode-switch__button is-active" type="button" data-mode="table">table</button>
+              <button class="mode-switch__button" type="button" data-mode="cell">cell</button>
+            </div>
+            <div class="field-grid">
+              <label class="field">
+                <span>table width, mm</span>
+                <input id="table-width-mm" type="number" step="0.1" min="0" value="260">
+              </label>
+              <label class="field">
+                <span>table height, mm</span>
+                <input id="table-height-mm" type="number" step="0.1" min="0" value="24">
+              </label>
+              <label class="field">
+                <span>cell width, mm</span>
+                <input id="cell-width-mm" type="number" step="0.1" min="0" value="30">
+              </label>
+              <label class="field">
+                <span>cell height, mm</span>
+                <input id="cell-height-mm" type="number" step="0.1" min="0" value="8">
+              </label>
+            </div>
+            <label class="field field--wide">
+              <span>output path</span>
+              <input id="output-path" type="text" spellcheck="false" placeholder="Пусто = temp\\kompas-pages\\*.tbl">
+            </label>
+            <div class="summary-box" id="layout-summary">Размеры будут рассчитаны после загрузки файла.</div>
+            <div class="action-row">
+              <button class="button" type="button" id="export-button">Экспорт</button>
+              <button class="button button--ghost" type="button" id="download-button" disabled>Скачать .tbl</button>
+              <button class="button button--ghost" type="button" id="reset-button">Сброс</button>
+            </div>
+            <div class="result-box" id="result-box">Экспорт ещё не выполнялся.</div>
+          </section>
+
+          <section class="panel panel--preview">
+            <div class="panel__head">
+              <h2>Preview</h2>
+              <span id="preview-meta">UsedRange первого листа</span>
+            </div>
+            <div class="preview-wrap">
+              <table class="preview-table" id="preview-table">
+                <tbody>
+                  <tr><td class="preview-table__empty">Загрузите XLSX.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel panel--log">
+            <div class="panel__head">
+              <h2>Log</h2>
+              <button class="button button--ghost" type="button" id="clear-log-button">Очистить</button>
+            </div>
+            <pre class="log" id="log-output">ready</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab" data-panel="text-sync">
+        <div class="placeholder">
+          <h2>TEXT SYNC</h2>
+          <p>Следующая вкладка. Интерфейс уже заложен, логика ещё не перенесена в Pages.</p>
+        </div>
+      </section>
+
+      <section class="tab" data-panel="queue">
+        <div class="placeholder">
+          <h2>QUEUE</h2>
+          <p>Резерв под остальные утилиты репозитория.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./assets/vendor/xlsx.full.min.js"></script>
+  <script src="./assets/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,264 @@
+{
+  "Versions": {
+    "UtilityVersion": "1.0.0",
+    "ConfigVersion": "kompas-pages-e2e-20260310-112954",
+    "ConfigSchemaVersion": 2
+  },
+  "Metadata": {
+    "ProductName": "KOMPAS Pages",
+    "ProductCode": "kompas3d-utility.pages",
+    "Author": "Codex",
+    "Description": "Static Pages UI for browser-side XLSX to KOMPAS TBL export via WebBridge.Utility.",
+    "RepositoryUrl": "https://github.com/"
+  },
+  "Runtime": {
+    "EnvironmentName": "PagesE2E",
+    "DevMode": false,
+    "NoBrowser": true
+  },
+  "Server": {
+    "ListenUrl": "http://127.0.0.1:38741"
+  },
+  "Ui": {
+    "Url": "http://127.0.0.1:5511/index.html",
+    "OpenMode": "Never",
+    "SessionWaitSeconds": 5
+  },
+  "Lifecycle": {
+    "ShutdownPolicy": "WhenIdle",
+    "IdleSeconds": 180
+  },
+  "Logging": {
+    "Level": "Debug",
+    "DebugMode": true,
+    "FilePath": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-112954\\logs\\utility.log"
+  },
+  "Storage": {
+    "ProfileDirectory": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-112954\\runtime\\profiles",
+    "CacheDirectory": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-112954\\runtime\\cache",
+    "DiagnosticsDirectory": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-112954\\runtime\\diagnostics"
+  },
+  "Catalog": {
+    "Profiles": [
+      {
+        "ProfileId": "kompas-pages",
+        "ConfigSchemaVersion": 1,
+        "Description": "Browser-driven Pages profile for xlsx-to-kompas-tbl.",
+        "Checksum": "kompas-pages-1773131394197",
+        "Commands": {
+          "kompas.pages.status": {
+            "CommandId": "kompas.pages.status",
+            "Adapter": "system",
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "powershell.exe",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": "-NoProfile -ExecutionPolicy Bypass -File \"C:\\_GIT_\\kompas3d-utility\\scripts\\webbridge_xlsx_to_kompas_tbl.ps1\" -Action status",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility",
+                      "Converter": "path"
+                    },
+                    {
+                      "Literal": 30000,
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "stdin",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": null
+                    }
+                  ]
+                }
+              ]
+            },
+            "DefaultArguments": {
+              "stdin": null
+            }
+          },
+          "kompas.pages.open-document": {
+            "CommandId": "kompas.pages.open-document",
+            "Adapter": "system",
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "powershell.exe",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": "-NoProfile -ExecutionPolicy Bypass -File \"C:\\_GIT_\\kompas3d-utility\\scripts\\webbridge_xlsx_to_kompas_tbl.ps1\" -Action open-document",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility",
+                      "Converter": "path"
+                    },
+                    {
+                      "Literal": 60000,
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "stdin",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": null
+                    }
+                  ]
+                }
+              ]
+            },
+            "DefaultArguments": {
+              "stdin": null
+            }
+          },
+          "kompas.pages.export": {
+            "CommandId": "kompas.pages.export",
+            "Adapter": "system",
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "powershell.exe",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": "-NoProfile -ExecutionPolicy Bypass -File \"C:\\_GIT_\\kompas3d-utility\\scripts\\webbridge_xlsx_to_kompas_tbl.ps1\" -Action export",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility",
+                      "Converter": "path"
+                    },
+                    {
+                      "Literal": 180000,
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "stdin",
+                      "Converter": "string"
+                    },
+                    {
+                      "Literal": null
+                    }
+                  ]
+                }
+              ]
+            },
+            "DefaultArguments": {
+              "stdin": null
+            }
+          },
+          "system.file.exists": {
+            "CommandId": "system.file.exists",
+            "Adapter": "system",
+            "Invoke": {
+              "Root": "type:System.IO.File",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Exists",
+                  "Args": [
+                    {
+                      "FromArgument": "path",
+                      "Converter": "path"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "system.file.read-bytes": {
+            "CommandId": "system.file.read-bytes",
+            "Adapter": "system",
+            "Invoke": {
+              "Root": "type:System.IO.File",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "ReadAllBytes",
+                  "Args": [
+                    {
+                      "FromArgument": "path",
+                      "Converter": "path"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "system.generic.file-info.length": {
+            "CommandId": "system.generic.file-info.length",
+            "Adapter": "system",
+            "Invoke": {
+              "Root": "type:System.IO.FileInfo",
+              "Chain": [
+                {
+                  "Operation": "new",
+                  "Member": "",
+                  "Args": [
+                    {
+                      "FromArgument": "path",
+                      "Converter": "path"
+                    }
+                  ]
+                },
+                {
+                  "Operation": "get",
+                  "Member": "Length"
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "Adapters": {
+    "Com": [],
+    "System": {
+      "AllowedTypeNames": [
+        "System.IO.File",
+        "System.IO.FileInfo"
+      ],
+      "AllowedProcessExecutables": [
+        "powershell.exe"
+      ]
+    }
+  },
+  "Security": {
+    "LoopbackOnly": true,
+    "PairingToken": "kompas-pages-e2e",
+    "AllowedOrigins": [
+      "http://127.0.0.1:5511",
+      "http://localhost:5511"
+    ]
+  },
+  "Session": {
+    "HeartbeatIntervalSeconds": 10,
+    "HeartbeatTimeoutSeconds": 30,
+    "PresenceTimeoutSeconds": 60,
+    "SuppressAutoOpenOnPresenceSessions": true,
+    "SweepIntervalSeconds": 2
+  }
+}

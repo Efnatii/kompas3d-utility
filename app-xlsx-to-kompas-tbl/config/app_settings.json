@@ -1,9 +1,9 @@
 ﻿{
-    "input_path":  "C:\\Users\\Alexandra\\Downloads\\Книга11.xlsx",
+    "input_path":  "C:\\_GIT_\\kompas3d-utility\\xlsx-to-kompas-tbl\\fixtures\\table_M2.xlsx",
     "cell_width_mm":  "30",
     "table_height_mm":  "24",
-    "table_width_mm":  "300",
+    "table_width_mm":  "260",
     "mode":  "table",
     "cell_height_mm":  "8",
-    "output_path":  "C:\\Users\\Alexandra\\YandexDisk-egory.forward\\2 В РАБОТУ 2020\\0004-0204 СМАРТ Куринка доработка (0245)\\2 РАБОЧАЯ\\Книга11.tbl"
+    "output_path":  "C:\\_GIT_\\kompas3d-utility\\app-xlsx-to-kompas-tbl\\out\\table_M2.tbl"
 }

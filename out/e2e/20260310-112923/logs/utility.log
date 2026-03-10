@@ -1,0 +1,35 @@
+2026-03-10T08:29:24.7642238+00:00 [Information] WebBridge.Utility, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null (2000): Utility started. ListenUrl=http://127.0.0.1:38741, DebugMode=True, LogFilePath=C:\_GIT_\kompas3d-utility\out\e2e\20260310-112923\logs\utility.log, ConfigPath=C:\_GIT_\kompas3d-utility\out\e2e\20260310-112923\runtime\config.runtime.json.
+2026-03-10T08:29:24.7696492+00:00 [Debug] Microsoft.Extensions.Hosting.Internal.Host (1): Hosting starting
+2026-03-10T08:29:24.7991551+00:00 [Information] WebBridge.Utility.UtilityBackgroundService (2301): Utility background service starting.
+2026-03-10T08:29:24.8043543+00:00 [Information] WebBridge.Utility.Core.ManifestService (1301): Manifest service initialized without remote URL. Source=none.
+2026-03-10T08:29:24.8048911+00:00 [Information] WebBridge.Utility.UtilityBackgroundService (2302): Manifest initialized. Waiting for UI session.
+2026-03-10T08:29:24.8244450+00:00 [Information] Microsoft.Hosting.Lifetime (14): Now listening on: http://127.0.0.1:38741
+2026-03-10T08:29:24.8247795+00:00 [Debug] Microsoft.AspNetCore.Hosting.Diagnostics (13): Loaded hosting startup assembly WebBridge.Utility, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+2026-03-10T08:29:24.8251017+00:00 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-03-10T08:29:24.8255252+00:00 [Information] Microsoft.Hosting.Lifetime: Hosting environment: PagesE2E
+2026-03-10T08:29:24.8257360+00:00 [Information] Microsoft.Hosting.Lifetime: Content root path: C:\_GIT_\web-bridge-utility\artifacts\publish\utility\win-x64\
+2026-03-10T08:29:24.8259244+00:00 [Debug] Microsoft.Extensions.Hosting.Internal.Host (2): Hosting started
+2026-03-10T08:29:25.4906556+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel.Connections (39): Connection id "0HNJUFSHO580P" accepted.
+2026-03-10T08:29:25.4913464+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel.Connections (1): Connection id "0HNJUFSHO580P" started.
+2026-03-10T08:29:25.5143266+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 GET http://127.0.0.1:38741/health - - -
+2026-03-10T08:29:25.5151885+00:00 [Debug] Microsoft.AspNetCore.HostFiltering.HostFilteringMiddleware: Wildcard detected, all requests with hosts will be allowed.
+2026-03-10T08:29:25.5929091+00:00 [Debug] Microsoft.AspNetCore.Routing.Matching.DfaMatcher (1001): 1 candidate(s) found for the request path '/health'
+2026-03-10T08:29:25.5934917+00:00 [Debug] Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware (1): Request matched endpoint 'HTTP: GET /health'
+2026-03-10T08:29:25.5963312+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: GET /health'
+2026-03-10T08:29:25.6078956+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T08:29:25.6152816+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: GET /health'
+2026-03-10T08:29:25.6157098+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel.Connections (9): Connection id "0HNJUFSHO580P" completed keep alive response.
+2026-03-10T08:29:25.6178540+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 GET http://127.0.0.1:38741/health - 200 - application/json;+charset=utf-8 103.3422ms
+2026-03-10T08:29:25.6227392+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel.Connections (39): Connection id "0HNJUFSHO580Q" accepted.
+2026-03-10T08:29:25.6232888+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel.Connections (1): Connection id "0HNJUFSHO580Q" started.
+2026-03-10T08:29:25.6257652+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 221
+2026-03-10T08:29:25.6269540+00:00 [Debug] Microsoft.AspNetCore.Routing.Matching.DfaMatcher (1001): 1 candidate(s) found for the request path '/commands/execute'
+2026-03-10T08:29:25.6274297+00:00 [Debug] Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware (1): Request matched endpoint 'HTTP: POST /commands/execute'
+2026-03-10T08:29:25.6277632+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T08:29:25.6348849+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel (25): Connection id "0HNJUFSHO580Q", Request id "0HNJUFSHO580Q:00000001": started reading request body.
+2026-03-10T08:29:25.6352059+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel (26): Connection id "0HNJUFSHO580Q", Request id "0HNJUFSHO580Q:00000001": done reading request body.
+2026-03-10T08:29:25.6473211+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 403.
+2026-03-10T08:29:25.6482806+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T08:29:25.6495206+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T08:29:25.6497569+00:00 [Debug] Microsoft.AspNetCore.Server.Kestrel.Connections (9): Connection id "0HNJUFSHO580Q" completed keep alive response.
+2026-03-10T08:29:25.6500481+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 403 - application/json;+charset=utf-8 24.2679ms

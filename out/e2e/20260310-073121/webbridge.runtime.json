@@ -1,0 +1,319 @@
+{
+  "Versions": {
+    "UtilityVersion": "1.0.0",
+    "ConfigVersion": "1.0.0-e2e-20260310-073121",
+    "ConfigSchemaVersion": 2
+  },
+  "Metadata": {
+    "ProductName": "kompas3d-utility Pages Bridge",
+    "ProductCode": "kompas3d-utility-pages",
+    "Author": "Efnatii",
+    "Description": "Local WebBridge runtime for the kompas3d-utility GitHub Pages frontend.",
+    "RepositoryUrl": "https://github.com/Efnatii/kompas3d-utility"
+  },
+  "Runtime": {
+    "EnvironmentName": "Production",
+    "DevMode": false,
+    "NoBrowser": true
+  },
+  "Server": {
+    "ListenUrl": "http://127.0.0.1:38741"
+  },
+  "Ui": {
+    "Url": "http://127.0.0.1:5510/?utilityBaseUrl=http%3A%2F%2F127.0.0.1%3A38741&pairingToken=pages-20260310-073121&profileId=kompas3d-pages&autoConnect=1",
+    "OpenMode": "Never",
+    "SessionWaitSeconds": 10
+  },
+  "Lifecycle": {
+    "ShutdownPolicy": "WhenIdle",
+    "IdleSeconds": 300
+  },
+  "Logging": {
+    "Level": "Information",
+    "DebugMode": false,
+    "FilePath": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime\\utility.log"
+  },
+  "Storage": {
+    "ProfileDirectory": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime\\profiles",
+    "CacheDirectory": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime\\cache",
+    "DiagnosticsDirectory": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime\\diagnostics"
+  },
+  "Catalog": {
+    "Manifest": {
+      "ConfigSchemaVersion": 1,
+      "ManifestVersion": "1.0.0",
+      "MinUtilityVersion": "1.0.0",
+      "UiVersion": "1.0.0",
+      "Checksum": "embedded-kompas3d-pages-manifest",
+      "Profiles": [
+        {
+          "ProfileId": "kompas3d-pages",
+          "Checksum": "embedded-kompas3d-pages-profile"
+        }
+      ]
+    },
+    "Profiles": [
+      {
+        "ProfileId": "kompas3d-pages",
+        "ConfigSchemaVersion": 1,
+        "Description": "Commands for the kompas3d-utility GitHub Pages frontend.",
+        "Checksum": "embedded-kompas3d-pages-profile",
+        "Commands": {
+          "app.runtime.status": {
+            "CommandId": "app.runtime.status",
+            "Adapter": "system",
+            "DefaultArguments": {
+              "standardInput": "{}",
+              "timeoutMilliseconds": 15000
+            },
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "C:\\Python314\\python.exe"
+                    },
+                    {
+                      "Literal": "\"C:\\_GIT_\\kompas3d-utility\\tools\\webbridge\\xlsx_to_kompas_tbl_service.py\" status"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime"
+                    },
+                    {
+                      "FromArgument": "timeoutMilliseconds",
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "standardInput",
+                      "Converter": "string"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "app.runtime.upload": {
+            "CommandId": "app.runtime.upload",
+            "Adapter": "system",
+            "DefaultArguments": {
+              "standardInput": "{}",
+              "timeoutMilliseconds": 120000
+            },
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "C:\\Python314\\python.exe"
+                    },
+                    {
+                      "Literal": "\"C:\\_GIT_\\kompas3d-utility\\tools\\webbridge\\xlsx_to_kompas_tbl_service.py\" upload"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime"
+                    },
+                    {
+                      "FromArgument": "timeoutMilliseconds",
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "standardInput",
+                      "Converter": "string"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "app.runtime.export": {
+            "CommandId": "app.runtime.export",
+            "Adapter": "system",
+            "DefaultArguments": {
+              "standardInput": "{}",
+              "timeoutMilliseconds": 240000
+            },
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "C:\\Python314\\python.exe"
+                    },
+                    {
+                      "Literal": "\"C:\\_GIT_\\kompas3d-utility\\tools\\webbridge\\xlsx_to_kompas_tbl_service.py\" export"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime"
+                    },
+                    {
+                      "FromArgument": "timeoutMilliseconds",
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "standardInput",
+                      "Converter": "string"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "app.runtime.insert": {
+            "CommandId": "app.runtime.insert",
+            "Adapter": "system",
+            "DefaultArguments": {
+              "standardInput": "{}",
+              "timeoutMilliseconds": 120000
+            },
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "C:\\Python314\\python.exe"
+                    },
+                    {
+                      "Literal": "\"C:\\_GIT_\\kompas3d-utility\\tools\\webbridge\\xlsx_to_kompas_tbl_service.py\" insert"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime"
+                    },
+                    {
+                      "FromArgument": "timeoutMilliseconds",
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "standardInput",
+                      "Converter": "string"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "app.runtime.download": {
+            "CommandId": "app.runtime.download",
+            "Adapter": "system",
+            "DefaultArguments": {
+              "standardInput": "{}",
+              "timeoutMilliseconds": 30000
+            },
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "C:\\Python314\\python.exe"
+                    },
+                    {
+                      "Literal": "\"C:\\_GIT_\\kompas3d-utility\\tools\\webbridge\\xlsx_to_kompas_tbl_service.py\" download"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime"
+                    },
+                    {
+                      "FromArgument": "timeoutMilliseconds",
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "standardInput",
+                      "Converter": "string"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "app.runtime.reset": {
+            "CommandId": "app.runtime.reset",
+            "Adapter": "system",
+            "DefaultArguments": {
+              "standardInput": "{}",
+              "timeoutMilliseconds": 30000
+            },
+            "Invoke": {
+              "Root": "command",
+              "Chain": [
+                {
+                  "Operation": "call",
+                  "Member": "Run",
+                  "Args": [
+                    {
+                      "Literal": "C:\\Python314\\python.exe"
+                    },
+                    {
+                      "Literal": "\"C:\\_GIT_\\kompas3d-utility\\tools\\webbridge\\xlsx_to_kompas_tbl_service.py\" reset"
+                    },
+                    {
+                      "Literal": "C:\\_GIT_\\kompas3d-utility\\out\\web-pages-runtime"
+                    },
+                    {
+                      "FromArgument": "timeoutMilliseconds",
+                      "Converter": "int"
+                    },
+                    {
+                      "FromArgument": "standardInput",
+                      "Converter": "string"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "Adapters": {
+    "Com": [],
+    "System": {
+      "AllowedRoots": [
+        "C:\\_GIT_\\kompas3d-utility\\out"
+      ],
+      "AllowedProcessExecutables": [
+        "python.exe"
+      ],
+      "DeniedProcessExecutables": [],
+      "AllowedTypeNames": [],
+      "DeniedTypeNames": [],
+      "AllowedNamespaces": [],
+      "DeniedNamespaces": [],
+      "DeniedInvocations": [],
+      "AllowedUrlPrefixes": [],
+      "DeniedUrlPrefixes": [],
+      "AllowedRegistryHives": [],
+      "DeniedRegistryHives": [],
+      "Members": [],
+      "RootAliases": []
+    }
+  },
+  "Security": {
+    "LoopbackOnly": true,
+    "PairingToken": "pages-20260310-073121",
+    "AllowedOrigins": [
+      "http://127.0.0.1:5510"
+    ]
+  },
+  "Session": {
+    "HeartbeatIntervalSeconds": 10,
+    "HeartbeatTimeoutSeconds": 30,
+    "PresenceTimeoutSeconds": 60,
+    "SuppressAutoOpenOnPresenceSessions": true,
+    "SweepIntervalSeconds": 2
+  }
+}
