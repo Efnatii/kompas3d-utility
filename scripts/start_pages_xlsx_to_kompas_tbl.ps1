@@ -3,7 +3,7 @@ param(
     [string]$PagesHost = "127.0.0.1",
     [int]$PagesPort = 5511,
     [int]$UtilityPort = 38741,
-    [string]$PairingToken = "kompas-pages-local",
+    [string]$PairingToken = "replace-this-token",
     [switch]$OpenBrowser
 )
 

@@ -4,7 +4,7 @@ const EXECUTOR_PROFILE_ID = "kompas-pages-executor";
 
 const DEFAULT_EXECUTOR_SETTINGS = {
   utilityUrl: "http://127.0.0.1:38741",
-  pairingToken: "kompas-pages-local",
+  pairingToken: "replace-this-token",
   workspaceRoot: "C:\\_GIT_\\kompas3d-utility",
   clientName: "kompas-pages-executor",
   uiVersion: "1.0.0",
@@ -957,22 +957,42 @@ function createExecutorShell({ modules }) {
       });
 
       const requestedToken = getEffectivePairingToken();
-      const bootstrapToken = DEFAULT_EXECUTOR_SETTINGS.pairingToken;
-      let bridge = createBridge(requestedToken);
+      const retryTokens = uniqueStrings([
+        requestedToken,
+        DEFAULT_EXECUTOR_SETTINGS.pairingToken,
+        "kompas-pages-local",
+      ]);
+      let bridge = createBridge(retryTokens[0]);
       let registration;
 
       try {
         registration = await bridge.connect();
       } catch (error) {
         const message = String(error?.message || error);
-        if (!message.includes("invalid pairing token") || requestedToken === bootstrapToken) {
+        if (!message.includes("invalid pairing token") || retryTokens.length < 2) {
           throw error;
         }
+        let connected = false;
 
-        appendLog("shell", "bootstrap-token-retry", bootstrapToken);
-        ui.pairingToken.value = bootstrapToken;
-        bridge = createBridge(bootstrapToken);
-        registration = await bridge.connect();
+        for (const retryToken of retryTokens.slice(1)) {
+          appendLog("shell", "bootstrap-token-retry", retryToken);
+          ui.pairingToken.value = retryToken;
+          bridge = createBridge(retryToken);
+          try {
+            registration = await bridge.connect();
+            connected = true;
+            break;
+          } catch (retryError) {
+            const retryMessage = String(retryError?.message || retryError);
+            if (!retryMessage.includes("invalid pairing token")) {
+              throw retryError;
+            }
+          }
+        }
+
+        if (!connected) {
+          throw error;
+        }
       }
 
       state.bridge = bridge;
