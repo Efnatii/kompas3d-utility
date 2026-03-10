@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "artifactRoot": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-132059",
+  "utilityUrl": "http://127.0.0.1:38741",
+  "staticUrl": "http://127.0.0.1:5511/index.html",
+  "outputTablePath": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-132059\\workspace\\table_M2.e2e.tbl",
+  "error": "locator.waitFor: Error: strict mode violation: locator('[data-module-id=\"xlsx-to-kompas-tbl\"].is-active') resolved to 2 elements:\n    1) <button type=\"button\" class=\"rail__tab is-active\" data-module-id=\"xlsx-to-kompas-tbl\">…</button> aka getByRole('button', { name: 'XLSX/TBL active' })\n    2) <section class=\"module-host is-active\" data-module-id=\"xlsx-to-kompas-tbl\">…</section> aka locator('section').nth(3)\n\nCall log:\n\u001b[2m  - waiting for locator('[data-module-id=\"xlsx-to-kompas-tbl\"].is-active') to be visible\u001b[22m\n\n    at main (C:\\_GIT_\\kompas3d-utility\\tools\\e2e\\run_e2e.mjs:274:75)"
+}

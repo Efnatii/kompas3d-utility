@@ -2,22 +2,20 @@
 param(
     [string]$PagesHost = "127.0.0.1",
     [int]$PagesPort = 5511,
-    [string]$UtilityUrl = "http://127.0.0.1:38741",
-    [string]$PairingToken = "kompas-pages-local"
+    [int]$UtilityPort = 38741,
+    [string]$PairingToken = "kompas-pages-local",
+    [switch]$OpenBrowser
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$RepoRootPath = Split-Path -Parent $PSScriptRoot
-$RuntimeRootPath = Join-Path $RepoRootPath "out\web-pages-runtime"
-$ConfigPath = Join-Path $RuntimeRootPath "config.runtime.json"
-$PidPath = Join-Path $RuntimeRootPath "pids.json"
-$StaticUrl = "http://$PagesHost`:$PagesPort/index.html"
-$LaunchUrl = "{0}?utilityUrl={1}&pairingToken={2}&autoConnect=1" -f `
-    $StaticUrl, `
-    [uri]::EscapeDataString($UtilityUrl), `
-    [uri]::EscapeDataString($PairingToken)
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$DocsRoot = Join-Path $RepoRoot "docs"
+$RuntimeRoot = Join-Path $RepoRoot "out\web-pages-runtime"
+$BuilderScript = Join-Path $RepoRoot "tools\runtime\build_runtime_config.mjs"
+$StaticServerScript = Join-Path $RepoRoot "tools\runtime\serve_docs.mjs"
+$PidFile = Join-Path $RuntimeRoot "pids.json"
 
 function Resolve-UtilityExePath {
     $candidates = @(
@@ -32,51 +30,66 @@ function Resolve-UtilityExePath {
         }
     }
 
-    throw "WebBridge.Utility.exe was not found under C:\_GIT_\web-bridge-utility"
+    throw "WebBridge.Utility.exe was not found."
 }
 
-New-Item -ItemType Directory -Force -Path $RuntimeRootPath | Out-Null
+New-Item -ItemType Directory -Force -Path $RuntimeRoot | Out-Null
+
+$StaticUrl = "http://{0}:{1}/index.html" -f $PagesHost, $PagesPort
+$UtilityUrl = "http://127.0.0.1:{0}" -f $UtilityPort
+$ConfigPath = Join-Path $RuntimeRoot "config.bootstrap.json"
+$UtilityExePath = Resolve-UtilityExePath
 
 $builderArgs = @(
-    "tools\runtime\build_runtime_config.mjs",
+    $BuilderScript,
     "--output", $ConfigPath,
     "--listen-url", $UtilityUrl,
     "--ui-url", $StaticUrl,
-    "--origin", "http://$PagesHost`:$PagesPort",
-    "--origin", "http://localhost:$PagesPort",
     "--pairing-token", $PairingToken,
-    "--log-file", (Join-Path $RuntimeRootPath "utility.log"),
-    "--diagnostics-dir", (Join-Path $RuntimeRootPath "diagnostics"),
-    "--profile-dir", (Join-Path $RuntimeRootPath "profiles"),
-    "--cache-dir", (Join-Path $RuntimeRootPath "cache")
+    "--origin", ("http://{0}:{1}" -f $PagesHost, $PagesPort),
+    "--origin", ("http://localhost:{0}" -f $PagesPort),
+    "--log-file", (Join-Path $RuntimeRoot "utility.log"),
+    "--diagnostics-dir", (Join-Path $RuntimeRoot "diagnostics"),
+    "--profile-dir", (Join-Path $RuntimeRoot "profiles"),
+    "--cache-dir", (Join-Path $RuntimeRoot "cache")
 )
+& node @builderArgs | Out-Null
 
-$builder = Start-Process -FilePath "node.exe" -ArgumentList $builderArgs -WorkingDirectory $RepoRootPath -PassThru -Wait -NoNewWindow
-if ($builder.ExitCode -ne 0) {
-    throw "Runtime config build failed with exit code $($builder.ExitCode)."
+$pagesProcess = Start-Process -FilePath "node" `
+    -ArgumentList @($StaticServerScript, $DocsRoot, $PagesHost, "$PagesPort") `
+    -WorkingDirectory $RepoRoot `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $RuntimeRoot "pages.stdout.log") `
+    -RedirectStandardError (Join-Path $RuntimeRoot "pages.stderr.log") `
+    -PassThru
+
+$utilityProcess = Start-Process -FilePath $UtilityExePath `
+    -ArgumentList @("--config", $ConfigPath) `
+    -WorkingDirectory (Split-Path -Parent $UtilityExePath) `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $RuntimeRoot "utility.stdout.log") `
+    -RedirectStandardError (Join-Path $RuntimeRoot "utility.stderr.log") `
+    -PassThru
+
+$launchUrl = "{0}?utilityUrl={1}&pairingToken={2}&autoConnect=1&workspaceRoot={3}" -f `
+    $StaticUrl, `
+    [uri]::EscapeDataString($UtilityUrl), `
+    [uri]::EscapeDataString($PairingToken), `
+    [uri]::EscapeDataString($RepoRoot)
+
+@{
+    pagesPid       = $pagesProcess.Id
+    utilityPid     = $utilityProcess.Id
+    staticUrl      = $StaticUrl
+    utilityUrl     = $UtilityUrl
+    launchUrl      = $launchUrl
+    configPath     = $ConfigPath
+    runtimeRoot    = $RuntimeRoot
+    startedAtUtc   = [DateTime]::UtcNow.ToString("o")
+} | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -Path $PidFile
+
+Write-Output $launchUrl
+
+if ($OpenBrowser) {
+    Start-Process $launchUrl | Out-Null
 }
-
-$utilityExePath = Resolve-UtilityExePath
-$pagesArgs = @("-3", "-m", "http.server", "$PagesPort", "--bind", $PagesHost, "--directory", "docs")
-$utilityArgs = @("--config", $ConfigPath)
-
-$pagesProcess = Start-Process -FilePath "py.exe" -ArgumentList $pagesArgs -WorkingDirectory $RepoRootPath -PassThru
-$utilityProcess = Start-Process -FilePath $utilityExePath -ArgumentList $utilityArgs -WorkingDirectory (Split-Path -Parent $utilityExePath) -PassThru
-
-$payload = [ordered]@{
-    pagesPid     = $pagesProcess.Id
-    utilityPid   = $utilityProcess.Id
-    pagesHost    = $PagesHost
-    pagesPort    = $PagesPort
-    utilityUrl   = $UtilityUrl
-    pairingToken = $PairingToken
-    configPath   = $ConfigPath
-    launchUrl    = $LaunchUrl
-}
-
-$payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $PidPath -Encoding utf8
-
-Write-Host "Pages URL   : $StaticUrl"
-Write-Host "Launch URL  : $LaunchUrl"
-Write-Host "Utility URL : $UtilityUrl"
-Write-Host "PIDs saved  : $PidPath"

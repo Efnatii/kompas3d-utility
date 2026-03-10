@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("status", "open-document", "export")]
+    [ValidateSet("status", "open-document", "export", "insert")]
     [string]$Action
 )
 
@@ -103,6 +103,29 @@ public sealed class KompasExportResult
     public string ErrorMessage { get; set; }
 }
 
+public sealed class KompasInsertResult
+{
+    public KompasInsertResult()
+    {
+        TblPath = string.Empty;
+        DocumentName = string.Empty;
+        DocumentPath = string.Empty;
+        ViewName = string.Empty;
+        ErrorCode = string.Empty;
+        ErrorMessage = string.Empty;
+    }
+
+    public bool Success { get; set; }
+    public string TblPath { get; set; }
+    public int TableCountBefore { get; set; }
+    public int TableCountAfter { get; set; }
+    public string DocumentName { get; set; }
+    public string DocumentPath { get; set; }
+    public string ViewName { get; set; }
+    public string ErrorCode { get; set; }
+    public string ErrorMessage { get; set; }
+}
+
 public static class KompasPagesBridge
 {
     private static IApplication TryGetRunningApplication()
@@ -183,6 +206,18 @@ public static class KompasPagesBridge
         }
     }
 
+    private static int SafeCount(IDrawingTables drawingTables)
+    {
+        try
+        {
+            return drawingTables == null ? 0 : drawingTables.Count;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     private static string BuildOutputPath(string sourceName, string outputPath)
     {
         string effective = (outputPath ?? string.Empty).Trim();
@@ -194,8 +229,8 @@ public static class KompasPagesBridge
                 baseName = "table";
             }
 
-            char[] invalid = Path.GetInvalidFileNameChars();
-            string safeName = new string(baseName.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            string safeName = new string(baseName.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray());
             string tempDir = Path.Combine(Path.GetTempPath(), "kompas-pages");
             Directory.CreateDirectory(tempDir);
             effective = Path.Combine(tempDir, safeName + ".tbl");
@@ -230,7 +265,6 @@ public static class KompasPagesBridge
             }
 
             result.Connected = true;
-
             IKompasDocument2D doc2D = app.ActiveDocument as IKompasDocument2D;
             if (doc2D == null)
             {
@@ -319,20 +353,22 @@ public static class KompasPagesBridge
         }
 
         IDrawingTable drawingTable = symbols.DrawingTables.Add(
-            cols,
             rows,
-            cellWidthMm,
+            cols,
             cellHeightMm,
+            cellWidthMm,
             ksTableTileLayoutEnum.ksTTLNotCreate);
 
         ITable table = (ITable)drawingTable;
-        for (int rowIndex = 0; rowIndex < rows; rowIndex++)
+        int rowIndex;
+        int columnIndex;
+        for (rowIndex = 0; rowIndex < rows; rowIndex++)
         {
             string[] currentRow = matrix[rowIndex] ?? new string[0];
-            for (int columnIndex = 0; columnIndex < cols; columnIndex++)
+            for (columnIndex = 0; columnIndex < cols; columnIndex++)
             {
                 string value = columnIndex < currentRow.Length ? (currentRow[columnIndex] ?? string.Empty) : string.Empty;
-                ITableCell cell = table.Cell[columnIndex, rowIndex];
+                ITableCell cell = table.Cell[rowIndex, columnIndex];
                 IText text = (IText)cell.Text;
                 text.Str = value;
             }
@@ -354,6 +390,47 @@ public static class KompasPagesBridge
         result.ViewName = SafeString(delegate() { return view.Name; });
         return result;
     }
+
+    public static KompasInsertResult InsertTable(string tblPath)
+    {
+        if (string.IsNullOrWhiteSpace(tblPath))
+        {
+            throw new ArgumentException("tblPath must not be empty.", "tblPath");
+        }
+
+        if (!File.Exists(tblPath))
+        {
+            throw new FileNotFoundException("Table file was not found.", tblPath);
+        }
+
+        IApplication app = GetOrStartApplication();
+        IKompasDocument2D doc2D = GetActiveDocument2D(app);
+        IView view = GetActiveView(doc2D);
+        ISymbols2DContainer symbols = view as ISymbols2DContainer;
+        if (symbols == null)
+        {
+            throw new InvalidOperationException("Active view does not expose ISymbols2DContainer.");
+        }
+
+        IDrawingTables drawingTables = symbols.DrawingTables;
+        int beforeCount = SafeCount(drawingTables);
+        object loaded = drawingTables.Load(tblPath);
+        if (loaded == null)
+        {
+            throw new InvalidOperationException("DrawingTables.Load returned null.");
+        }
+
+        int afterCount = SafeCount(drawingTables);
+        KompasInsertResult result = new KompasInsertResult();
+        result.Success = true;
+        result.TblPath = tblPath;
+        result.TableCountBefore = beforeCount;
+        result.TableCountAfter = afterCount;
+        result.DocumentName = SafeString(delegate() { return doc2D.Name; });
+        result.DocumentPath = SafeString(delegate() { return doc2D.PathName; });
+        result.ViewName = SafeString(delegate() { return view.Name; });
+        return result;
+    }
 }
 "@
 
@@ -365,7 +442,6 @@ function Read-JsonFromStdin {
     if ([string]::IsNullOrWhiteSpace($raw)) {
         return $null
     }
-
     return $raw | ConvertFrom-Json
 }
 
@@ -385,14 +461,8 @@ function Convert-ToStringMatrix {
 
         $values = New-Object System.Collections.Generic.List[string]
         foreach ($cell in $row) {
-            if ($null -eq $cell) {
-                [void]$values.Add("")
-            }
-            else {
-                [void]$values.Add([string]$cell)
-            }
+            [void]$values.Add($(if ($null -eq $cell) { "" } else { [string]$cell }))
         }
-
         [void]$rows.Add([string[]]$values.ToArray())
     }
 
@@ -443,6 +513,22 @@ function Convert-ExportPayload {
     }
 }
 
+function Convert-InsertPayload {
+    param([Parameter(Mandatory = $true)]$Result)
+
+    return [ordered]@{
+        success          = [bool]$Result.Success
+        tblPath          = [string]$Result.TblPath
+        tableCountBefore = [int]$Result.TableCountBefore
+        tableCountAfter  = [int]$Result.TableCountAfter
+        documentName     = [string]$Result.DocumentName
+        documentPath     = [string]$Result.DocumentPath
+        viewName         = [string]$Result.ViewName
+        errorCode        = [string]$Result.ErrorCode
+        errorMessage     = [string]$Result.ErrorMessage
+    }
+}
+
 function Write-JsonPayload {
     param([Parameter(Mandatory = $true)]$Payload)
     $Payload | ConvertTo-Json -Depth 20 -Compress
@@ -476,6 +562,13 @@ try {
                 [double]$request.cellHeightMm,
                 $matrix)
             Write-Output (Write-JsonPayload -Payload (Convert-ExportPayload -Result $result))
+            exit 0
+        }
+
+        "insert" {
+            $request = Read-JsonFromStdin
+            $result = [KompasPagesBridge]::InsertTable([string]$request.tblPath)
+            Write-Output (Write-JsonPayload -Payload (Convert-InsertPayload -Result $result))
             exit 0
         }
     }

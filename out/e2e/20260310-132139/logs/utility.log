@@ -1,0 +1,139 @@
+2026-03-10T10:21:40.0678312+00:00 [Information] WebBridge.Utility, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null (2000): Utility started. ListenUrl=http://127.0.0.1:38741, DebugMode=False, LogFilePath=C:\_GIT_\kompas3d-utility\out\e2e\20260310-132139\logs\utility.log, ConfigPath=C:\_GIT_\kompas3d-utility\out\e2e\20260310-132139\runtime\config.bootstrap.json.
+2026-03-10T10:21:40.0992237+00:00 [Information] WebBridge.Utility.UtilityBackgroundService (2301): Utility background service starting.
+2026-03-10T10:21:40.1040066+00:00 [Information] WebBridge.Utility.Core.ManifestService (1301): Manifest service initialized without remote URL. Source=none.
+2026-03-10T10:21:40.1043307+00:00 [Information] WebBridge.Utility.UtilityBackgroundService (2302): Manifest initialized. Waiting for UI session.
+2026-03-10T10:21:40.1225839+00:00 [Information] Microsoft.Hosting.Lifetime (14): Now listening on: http://127.0.0.1:38741
+2026-03-10T10:21:40.1235057+00:00 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-03-10T10:21:40.1238329+00:00 [Information] Microsoft.Hosting.Lifetime: Hosting environment: PagesE2E
+2026-03-10T10:21:40.1240049+00:00 [Information] Microsoft.Hosting.Lifetime: Content root path: C:\_GIT_\web-bridge-utility\artifacts\publish\utility\win-x64\
+2026-03-10T10:21:40.8734607+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 GET http://127.0.0.1:38741/health - - -
+2026-03-10T10:21:40.9513209+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: GET /health'
+2026-03-10T10:21:40.9632108+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:40.9705951+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: GET /health'
+2026-03-10T10:21:40.9726571+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 GET http://127.0.0.1:38741/health - 200 - application/json;+charset=utf-8 98.7967ms
+2026-03-10T10:21:41.4674366+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/session/register - - -
+2026-03-10T10:21:41.4698226+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/session/register - 204 - - 2.3461ms
+2026-03-10T10:21:41.4722126+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/session/register - application/json 82
+2026-03-10T10:21:41.4733953+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /session/register'
+2026-03-10T10:21:41.4862124+00:00 [Information] WebBridge.Utility.Core.SessionManager (1000): Registered session f304696c1c3d4ba7adb6dead7b901756 for client kompas-pages-executor.
+2026-03-10T10:21:41.4903139+00:00 [Information] WebBridge.Utility.Api (2100): Registered UI session f304696c1c3d4ba7adb6dead7b901756 for client kompas-pages-executor. Active sessions: 0.
+2026-03-10T10:21:41.4954333+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:41.4979950+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /session/register'
+2026-03-10T10:21:41.4985634+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/session/register - 200 - application/json;+charset=utf-8 26.3024ms
+2026-03-10T10:21:41.5015524+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 GET http://127.0.0.1:38741/ws/session?sessionId=f304696c1c3d4ba7adb6dead7b901756&token=kompas-pages-e2e - - -
+2026-03-10T10:21:41.5026386+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint '/ws/session'
+2026-03-10T10:21:41.5133437+00:00 [Information] WebBridge.Utility.WebSocket (2105): Accepted WebSocket for session f304696c1c3d4ba7adb6dead7b901756.
+2026-03-10T10:21:41.5204840+00:00 [Information] WebBridge.Utility.Core.SessionManager (1002): Active session count changed from 0 to 1 for session f304696c1c3d4ba7adb6dead7b901756.
+2026-03-10T10:21:41.5240980+00:00 [Information] WebBridge.Utility.UtilityBackgroundService (2306): Active UI session count changed to 1.
+2026-03-10T10:21:41.6272184+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/effective - - -
+2026-03-10T10:21:41.6278147+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/effective - 204 - - 0.5899ms
+2026-03-10T10:21:41.6291055+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 GET http://127.0.0.1:38741/config/effective - application/json -
+2026-03-10T10:21:41.6305661+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: GET /config/effective'
+2026-03-10T10:21:41.6328472+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:41.6479100+00:00 [Information] WebBridge.Utility.Core.IdleShutdownSupervisor (1100): Idle shutdown monitoring enabled. Policy=WhenIdle, Timeout=00:03:00.
+2026-03-10T10:21:41.6483510+00:00 [Information] WebBridge.Utility.Core.IdleShutdownSupervisor (1101): Idle shutdown cancelled because active sessions are present.
+2026-03-10T10:21:41.6529062+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: GET /config/effective'
+2026-03-10T10:21:41.6533543+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 GET http://127.0.0.1:38741/config/effective - 200 - application/json;+charset=utf-8 24.2246ms
+2026-03-10T10:21:41.6569419+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/load - - -
+2026-03-10T10:21:41.6575202+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/load - 204 - - 0.5613ms
+2026-03-10T10:21:41.6589119+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/config/load - application/json 5400
+2026-03-10T10:21:41.6593520+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /config/load'
+2026-03-10T10:21:41.6789990+00:00 [Information] WebBridge.Utility.Core.ManifestService (1301): Manifest service initialized without remote URL. Source=none.
+2026-03-10T10:21:41.6809171+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:41.6844627+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:41.6869933+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /config/load'
+2026-03-10T10:21:41.6876226+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/config/load - 200 - application/json;+charset=utf-8 28.6464ms
+2026-03-10T10:21:41.6930097+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/commands/execute - - -
+2026-03-10T10:21:41.6935588+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/commands/execute - 204 - - 0.5372ms
+2026-03-10T10:21:41.6943891+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 148
+2026-03-10T10:21:41.6956279+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:41.7011102+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:41.7030110+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:42.5341933+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True.
+2026-03-10T10:21:42.5431172+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True. ExecutionId=6d618eb88d1841f399a1d79de6145343.
+2026-03-10T10:21:42.5436753+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:42.5446894+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:42.5456919+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:42.5459485+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 851.5359ms
+2026-03-10T10:21:43.1915892+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 264
+2026-03-10T10:21:43.1919979+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:43.1923758+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.open-document.
+2026-03-10T10:21:43.1926016+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.open-document.
+2026-03-10T10:21:43.9847965+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/xlsx-to-kompas-tbl.open-document finished. Success=True.
+2026-03-10T10:21:43.9853228+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/xlsx-to-kompas-tbl.open-document finished. Success=True. ExecutionId=43a2680c0ce8406ab65d6483b1b26d74.
+2026-03-10T10:21:43.9855429+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:43.9857695+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:43.9860565+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:43.9862776+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 794.6731ms
+2026-03-10T10:21:44.0192990+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 148
+2026-03-10T10:21:44.0198181+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:44.0202898+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:44.0205200+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:44.2856889+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 1435
+2026-03-10T10:21:44.2860976+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:44.2865328+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.export.
+2026-03-10T10:21:44.2867845+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.export.
+2026-03-10T10:21:44.8250417+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True.
+2026-03-10T10:21:44.8256038+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True. ExecutionId=8638f671a6634afc9c67436e809594c3.
+2026-03-10T10:21:44.8258692+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:44.8261465+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:44.8265614+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:44.8269371+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 807.6045ms
+2026-03-10T10:21:46.1743336+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/xlsx-to-kompas-tbl.export finished. Success=True.
+2026-03-10T10:21:46.1749729+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/xlsx-to-kompas-tbl.export finished. Success=True. ExecutionId=feed1aff3ce342cb8da059c65ec3f2f1.
+2026-03-10T10:21:46.1751946+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:46.1755272+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:46.1759786+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:46.1763080+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 1890.5881ms
+2026-03-10T10:21:46.1790096+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 237
+2026-03-10T10:21:46.1794188+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:46.1797029+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/system.file.read-bytes.
+2026-03-10T10:21:46.1798876+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/system.file.read-bytes.
+2026-03-10T10:21:46.2607520+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/system.file.read-bytes finished. Success=True.
+2026-03-10T10:21:46.2644499+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/system.file.read-bytes finished. Success=True. ExecutionId=bb095aa02a9445aa85d8c9f871b2238c.
+2026-03-10T10:21:46.2648723+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:46.2651360+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:46.2657652+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:46.2662913+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 87.2557ms
+2026-03-10T10:21:46.2712889+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 148
+2026-03-10T10:21:46.2718237+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:46.2721782+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:46.2723675+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:47.0323277+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True.
+2026-03-10T10:21:47.0327902+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True. ExecutionId=fef38982a34544688b8b670d430608ee.
+2026-03-10T10:21:47.0329698+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:47.0331547+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:47.0334147+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:47.0337228+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 762.4086ms
+2026-03-10T10:21:47.0697535+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/commands/execute - - -
+2026-03-10T10:21:47.0703261+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/commands/execute - 204 - - 0.5552ms
+2026-03-10T10:21:47.0715822+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 273
+2026-03-10T10:21:47.0719460+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:47.0725472+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.insert.
+2026-03-10T10:21:47.0728001+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.insert.
+2026-03-10T10:21:47.8869726+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/xlsx-to-kompas-tbl.insert finished. Success=True.
+2026-03-10T10:21:47.8874048+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/xlsx-to-kompas-tbl.insert finished. Success=True. ExecutionId=1e869a08eacb473d9ba494f5da467d41.
+2026-03-10T10:21:47.8875955+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:47.8877545+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:47.8879964+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:47.8882338+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 816.6222ms
+2026-03-10T10:21:47.8912732+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 148
+2026-03-10T10:21:47.8916849+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:47.8922466+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:47.8925624+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:48.6800531+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1206): Invoke command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True.
+2026-03-10T10:21:48.6807019+00:00 [Information] WebBridge.Utility.Api (2103): Command kompas-pages-executor/xlsx-to-kompas-tbl.status finished. Success=True. ExecutionId=2f3d591a4d08412db506e80d9690e28d.
+2026-03-10T10:21:48.6810741+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (1): Setting HTTP status code 200.
+2026-03-10T10:21:48.6813359+00:00 [Information] Microsoft.AspNetCore.Http.Result.JsonResult (3): Writing value of type 'ApiEnvelope`1' as Json.
+2026-03-10T10:21:48.6816826+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:48.6820239+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 790.7071ms
+2026-03-10T10:21:48.7221147+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (1): Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 148
+2026-03-10T10:21:48.7225070+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware: Executing endpoint 'HTTP: POST /commands/execute'
+2026-03-10T10:21:48.7228223+00:00 [Information] WebBridge.Utility.Api (2102): Executing command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:48.7230387+00:00 [Information] WebBridge.Utility.Core.CommandDispatcher (1200): Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.status.
+2026-03-10T10:21:48.9821230+00:00 [Information] WebBridge.Utility.Core.SessionManager (1002): Active session count changed from 1 to 0 for session f304696c1c3d4ba7adb6dead7b901756.
+2026-03-10T10:21:48.9824046+00:00 [Information] WebBridge.Utility.UtilityBackgroundService (2306): Active UI session count changed to 0.
+2026-03-10T10:21:48.9865335+00:00 [Information] WebBridge.Utility.Core.IdleShutdownSupervisor (1103): Idle shutdown countdown armed for 03/10/2026 10:24:48 +00:00.
+2026-03-10T10:21:48.9869881+00:00 [Information] WebBridge.Utility.WebSocket (2108): Closed WebSocket for session f304696c1c3d4ba7adb6dead7b901756.
+2026-03-10T10:21:48.9874549+00:00 [Information] Microsoft.AspNetCore.Routing.EndpointMiddleware (1): Executed endpoint '/ws/session'
+2026-03-10T10:21:48.9880865+00:00 [Information] Microsoft.AspNetCore.Hosting.Diagnostics (2): Request finished HTTP/1.1 GET http://127.0.0.1:38741/ws/session?sessionId=f304696c1c3d4ba7adb6dead7b901756&token=kompas-pages-e2e - 101 - - 7486.5125ms

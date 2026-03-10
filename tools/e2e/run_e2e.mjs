@@ -12,11 +12,13 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 const docsRoot = path.join(repoRoot, "docs");
 const fixturePath = path.join(repoRoot, "xlsx-to-kompas-tbl", "fixtures", "table_M2.xlsx");
 const outputRoot = path.join(repoRoot, "out", "e2e");
+
 const utilityCandidates = [
   path.join("C:\\_GIT_\\web-bridge-utility", "artifacts", "publish", "utility", "win-x64", "WebBridge.Utility.exe"),
   path.join("C:\\_GIT_\\web-bridge-utility", "src", "WebBridge.Utility", "bin", "Release", "net8.0", "win-x64", "WebBridge.Utility.exe"),
   path.join("C:\\_GIT_\\web-bridge-utility", "artifacts", "release", "web-bridge-utility-1.0.0-win-x64", "WebBridge.Utility.exe"),
 ];
+
 const kompasSampleCandidates = [
   path.join("C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\Cable3D", "Plug.frw"),
   path.join("C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\Cable3D", "Point.frw"),
@@ -35,9 +37,7 @@ function nowStamp() {
 }
 
 function parseArgs(argv) {
-  const parsed = {
-    browser: "msedge",
-  };
+  const parsed = { browser: "msedge" };
   for (let index = 2; index < argv.length; index += 1) {
     const token = argv[index];
     const value = argv[index + 1];
@@ -57,22 +57,13 @@ function ensureDir(targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
 }
 
-function resolveUtilityExePath() {
-  for (const candidate of utilityCandidates) {
+function resolveExistingPath(candidates, errorMessage) {
+  for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
       return candidate;
     }
   }
-  throw new Error("WebBridge.Utility.exe was not found.");
-}
-
-function resolveKompasSamplePath() {
-  for (const candidate of kompasSampleCandidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  throw new Error("KOMPAS 2D sample drawing was not found.");
+  throw new Error(errorMessage);
 }
 
 function startStaticServer(rootPath, host, port) {
@@ -92,8 +83,7 @@ function startStaticServer(rootPath, host, port) {
       return;
     }
 
-    const extension = path.extname(filePath).toLowerCase();
-    const contentTypeMap = {
+    const contentTypes = {
       ".html": "text/html; charset=utf-8",
       ".js": "text/javascript; charset=utf-8",
       ".css": "text/css; charset=utf-8",
@@ -105,7 +95,7 @@ function startStaticServer(rootPath, host, port) {
       ".woff": "font/woff",
       ".woff2": "font/woff2",
     };
-    response.setHeader("Content-Type", contentTypeMap[extension] || "application/octet-stream");
+    response.setHeader("Content-Type", contentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream");
     fs.createReadStream(filePath).pipe(response);
   });
 
@@ -157,8 +147,10 @@ async function executeCommand(baseUrl, pairingToken, origin, profileId, commandI
       commandId,
       arguments: args,
       timeoutMilliseconds,
+      reportVerbosity: "Compact",
     }),
   });
+
   const payload = await response.json();
   const execution = payload?.payload ?? payload;
   if (!response.ok || !execution?.success) {
@@ -172,6 +164,7 @@ function parseStdoutJson(execution) {
   if (!result?.hasExited) {
     throw new Error("Process result is missing.");
   }
+
   const stdout = String(result.stdout || "").trim();
   if (!stdout) {
     return {};
@@ -185,6 +178,7 @@ function stopChild(child) {
       resolve();
       return;
     }
+
     child.once("exit", () => resolve());
     child.kill();
     setTimeout(() => {
@@ -212,19 +206,20 @@ async function main() {
   const pagesPort = 5511;
   const utilityPort = 38741;
   const staticUrl = `http://${pagesHost}:${pagesPort}/index.html`;
+  const pagesOrigin = `http://${pagesHost}:${pagesPort}`;
   const utilityUrl = `http://127.0.0.1:${utilityPort}`;
   const pairingToken = "kompas-pages-e2e";
-  const utilityExePath = resolveUtilityExePath();
-  const kompasSamplePath = resolveKompasSamplePath();
+  const utilityExePath = resolveExistingPath(utilityCandidates, "WebBridge.Utility.exe was not found.");
+  const kompasSamplePath = resolveExistingPath(kompasSampleCandidates, "KOMPAS sample drawing was not found.");
   const outputTablePath = path.join(workspaceRoot, "table_M2.e2e.tbl");
 
   const runtime = buildRuntimeConfig({
-    outputPath: path.join(runtimeRoot, "config.runtime.json"),
+    outputPath: path.join(runtimeRoot, "config.bootstrap.json"),
     listenUrl: utilityUrl,
     uiUrl: staticUrl,
     pairingToken,
     allowedOrigins: [
-      `http://${pagesHost}:${pagesPort}`,
+      pagesOrigin,
       `http://localhost:${pagesPort}`,
     ],
     logFilePath: path.join(logsRoot, "utility.log"),
@@ -242,59 +237,76 @@ async function main() {
     ["--config", runtime.outputPath],
     {
       cwd: path.dirname(utilityExePath),
-      stdoutPath: path.join(logsRoot, "utility-launcher.stdout.log"),
-      stderrPath: path.join(logsRoot, "utility-launcher.stderr.log"),
+      stdoutPath: path.join(logsRoot, "utility.stdout.log"),
+      stderrPath: path.join(logsRoot, "utility.stderr.log"),
     },
   );
 
   let browser;
+  const report = {
+    success: false,
+    artifactRoot,
+    utilityUrl,
+    staticUrl,
+    outputTablePath,
+  };
+
   try {
     await waitForHealth(utilityUrl, 90000);
 
-    const openDocumentExecution = await executeCommand(
-      utilityUrl,
-      pairingToken,
-      `http://${pagesHost}:${pagesPort}`,
-      "kompas-pages",
-      "kompas.pages.open-document",
-      {
-        stdin: JSON.stringify({
-          documentPath: kompasSamplePath,
-        }),
-      },
-      60000,
-    );
-    const openDocumentPayload = parseStdoutJson(openDocumentExecution);
-    if (!openDocumentPayload.success) {
-      throw new Error(`Failed to open KOMPAS document: ${JSON.stringify(openDocumentPayload)}`);
-    }
-
-    browser = await chromium.launch({
-      channel: args.browser,
-      headless: true,
-    });
+    const launchOptions = args.browser === "chromium"
+      ? { headless: true }
+      : { channel: args.browser, headless: true };
+    browser = await chromium.launch(launchOptions);
     const page = await browser.newPage({
       viewport: { width: 1440, height: 980 },
     });
-    page.setDefaultTimeout(30000);
+    page.setDefaultTimeout(60000);
 
-    await page.goto(`${staticUrl}?utilityUrl=${encodeURIComponent(utilityUrl)}&pairingToken=${encodeURIComponent(pairingToken)}&autoConnect=1`, {
-      waitUntil: "networkidle",
-    });
+    await page.goto(
+      `${staticUrl}?utilityUrl=${encodeURIComponent(utilityUrl)}&pairingToken=${encodeURIComponent(pairingToken)}&autoConnect=1&workspaceRoot=${encodeURIComponent(repoRoot)}`,
+      { waitUntil: "networkidle" },
+    );
     await page.screenshot({ path: path.join(screenshotsRoot, "00-loaded.png"), fullPage: true });
 
-    await page.locator("#bridge-badge").filter({ hasText: "online" }).waitFor();
-    await page.locator("#kompas-badge").filter({ hasText: "doc ok" }).waitFor();
+    await page.locator("#bridge-badge").filter({ hasText: "bridge online" }).waitFor();
+    await page.locator("#runtime-badge").filter({ hasText: "runtime ready" }).waitFor();
+    await page.locator('.module-host[data-module-id="xlsx-to-kompas-tbl"].is-active').waitFor();
 
-    await page.locator("#xlsx-file").setInputFiles(fixturePath);
-    await page.locator("#matrix-size").filter({ hasText: "8 × 13" }).waitFor();
-    await page.locator("#preview-table").filter({ hasText: "M2.2" }).waitFor();
-    await page.screenshot({ path: path.join(screenshotsRoot, "10-uploaded.png"), fullPage: true });
+    const tabCount = await page.locator(".rail__tab").count();
+    if (tabCount < 3) {
+      throw new Error(`Expected at least 3 tabs, got ${tabCount}`);
+    }
 
-    await page.locator("#output-path").fill(outputTablePath);
-    await page.locator("#export-button").click();
-    await page.locator("#result-box").filter({ hasText: "OK" }).waitFor({ timeout: 180000 });
-    await page.screenshot({ path: path.join(screenshotsRoot, "20-exported.png"), fullPage: true });
+    const openExecution = await executeCommand(
+      utilityUrl,
+      pairingToken,
+      pagesOrigin,
+      "kompas-pages-executor",
+      "xlsx-to-kompas-tbl.open-document",
+      {
+        stdin: JSON.stringify({ documentPath: kompasSamplePath }),
+      },
+      60000,
+    );
+    const openPayload = parseStdoutJson(openExecution);
+    if (!openPayload.success) {
+      throw new Error(`Failed to open sample drawing: ${JSON.stringify(openPayload)}`);
+    }
+
+    await page.locator("#xlsx-refresh-status").click();
+    await page.locator("#module-badge").filter({ hasText: "doc ok" }).waitFor();
+    await page.screenshot({ path: path.join(screenshotsRoot, "10-status.png"), fullPage: true });
+
+    await page.locator("#xlsx-file-input").setInputFiles(fixturePath);
+    await page.locator("#xlsx-matrix-size").filter({ hasText: "8 x 13" }).waitFor();
+    await page.locator("#xlsx-preview-table").filter({ hasText: "M2.2" }).waitFor();
+    await page.screenshot({ path: path.join(screenshotsRoot, "20-uploaded.png"), fullPage: true });
+
+    await page.locator("#xlsx-output-path").fill(outputTablePath);
+    await page.locator("#xlsx-export-button").click();
+    await page.locator("#xlsx-result-box").filter({ hasText: "OK" }).waitFor({ timeout: 180000 });
+    await page.screenshot({ path: path.join(screenshotsRoot, "30-exported.png"), fullPage: true });
 
     if (!fs.existsSync(outputTablePath)) {
       throw new Error(`Exported table was not created: ${outputTablePath}`);
@@ -305,33 +317,51 @@ async function main() {
       throw new Error("Exported table is empty.");
     }
 
-    await page.locator('[data-tab="text-sync"]').click();
-    await page.locator('[data-panel="text-sync"].tab--active').waitFor();
-    await page.locator('[data-tab="xlsx"]').click();
-    await page.locator('[data-panel="xlsx"].tab--active').waitFor();
-    await page.screenshot({ path: path.join(screenshotsRoot, "30-tab-switch.png"), fullPage: true });
+    await page.locator("#xlsx-insert-button").click();
+    await page.locator("#xlsx-result-box").filter({ hasText: "Inserted" }).waitFor({ timeout: 60000 });
+    await page.screenshot({ path: path.join(screenshotsRoot, "40-inserted.png"), fullPage: true });
 
-    await page.locator("#reset-button").click();
-    await page.locator("#matrix-size").filter({ hasText: "0 × 0" }).waitFor();
-    await page.screenshot({ path: path.join(screenshotsRoot, "40-reset.png"), fullPage: true });
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.locator("#xlsx-download-button").click(),
+    ]);
+    const downloadedPath = path.join(workspaceRoot, await download.suggestedFilename());
+    await download.saveAs(downloadedPath);
+    if (!fs.existsSync(downloadedPath) || fs.statSync(downloadedPath).size <= 0) {
+      throw new Error("Downloaded table artifact is empty.");
+    }
 
-    const report = {
+    await page.locator('.rail__tab[data-module-id="kompas-text-sync"]').click();
+    await page.locator('.module-host[data-module-id="kompas-text-sync"].is-active').waitFor();
+    await page.locator('.rail__tab[data-module-id="xlsx-to-kompas-tbl"]').click();
+    await page.locator('.module-host[data-module-id="xlsx-to-kompas-tbl"].is-active').waitFor();
+    await page.locator("#xlsx-matrix-size").filter({ hasText: "8 x 13" }).waitFor();
+    await page.screenshot({ path: path.join(screenshotsRoot, "50-tab-switch.png"), fullPage: true });
+
+    await page.locator("#xlsx-reset-button").click();
+    await page.locator("#xlsx-matrix-size").filter({ hasText: "0 x 0" }).waitFor();
+    await page.locator("#xlsx-download-button").isDisabled();
+    await page.screenshot({ path: path.join(screenshotsRoot, "60-reset.png"), fullPage: true });
+
+    Object.assign(report, {
       success: true,
-      artifactRoot,
-      utilityUrl,
-      staticUrl,
-      outputTablePath,
       outputTableSize: outputStat.size,
-      openDocumentPayload,
-    };
+      downloadedPath,
+      downloadedSize: fs.statSync(downloadedPath).size,
+      openDocumentPayload: openPayload,
+    });
     fs.writeFileSync(path.join(artifactRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } catch (error) {
+    report.error = String(error.stack || error);
+    fs.writeFileSync(path.join(artifactRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    throw error;
   } finally {
     if (browser) {
       await browser.close();
     }
     await stopChild(utilityProcess);
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise((resolve, reject) => server.close((closingError) => (closingError ? reject(closingError) : resolve())));
   }
 }
 

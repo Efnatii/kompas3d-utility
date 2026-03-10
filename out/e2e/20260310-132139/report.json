@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "artifactRoot": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-132139",
+  "utilityUrl": "http://127.0.0.1:38741",
+  "staticUrl": "http://127.0.0.1:5511/index.html",
+  "outputTablePath": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-132139\\workspace\\table_M2.e2e.tbl",
+  "outputTableSize": 4159,
+  "downloadedPath": "C:\\_GIT_\\kompas3d-utility\\out\\e2e\\20260310-132139\\workspace\\table_M2.e2e.tbl",
+  "downloadedSize": 4159,
+  "openDocumentPayload": {
+    "success": true,
+    "documentName": "Plug.frw",
+    "documentPath": "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\Cable3D\\Plug.frw",
+    "errorCode": "",
+    "errorMessage": ""
+  }
+}

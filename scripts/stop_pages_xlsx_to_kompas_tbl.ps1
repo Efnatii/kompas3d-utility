@@ -4,27 +4,29 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$RepoRootPath = Split-Path -Parent $PSScriptRoot
-$PidPath = Join-Path $RepoRootPath "out\web-pages-runtime\pids.json"
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$PidFile = Join-Path $RepoRoot "out\web-pages-runtime\pids.json"
 
-if (-not (Test-Path -LiteralPath $PidPath)) {
-    Write-Host "Runtime pid file was not found: $PidPath"
+if (-not (Test-Path -LiteralPath $PidFile)) {
+    Write-Output "No runtime pid file: $PidFile"
     exit 0
 }
 
-$payload = Get-Content -Raw -LiteralPath $PidPath | ConvertFrom-Json
+$payload = Get-Content -Raw -LiteralPath $PidFile | ConvertFrom-Json
 
 foreach ($propertyName in @("pagesPid", "utilityPid")) {
-    $targetPid = $payload.$propertyName
-    if (-not $targetPid) {
+    $targetPid = [int]$payload.$propertyName
+    if ($targetPid -le 0) {
         continue
     }
 
-    $process = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
-    if ($null -ne $process) {
-        Stop-Process -Id $targetPid -Force
-        Write-Host "Stopped $propertyName = $targetPid"
+    try {
+        $process = Get-Process -Id $targetPid -ErrorAction Stop
+        Stop-Process -Id $process.Id -Force -ErrorAction Stop
+        Write-Output "Stopped $propertyName=$targetPid"
+    } catch {
+        Write-Output "Skip $propertyName=$targetPid"
     }
 }
 
-Remove-Item -LiteralPath $PidPath -Force
+Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
