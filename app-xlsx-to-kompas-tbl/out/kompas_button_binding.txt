@@ -1,8 +1,0 @@
-﻿KOMPAS-3D button binding (external command)
--------------------------------------------
-Program : C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\bin\app-xlsx-to-kompas-tbl.exe
-Arguments: 
-Name    : Xlsx To Kompas Tbl
-Icon    : C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\assets\app.ico
-Status  : READY
-Source  : bin/<app>.exe

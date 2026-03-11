@@ -1,3 +1,0 @@
-﻿"AppFolder";"Name";"Program";"Arguments";"Icon";"Status";"LauncherSource";"BindingFile";"Note"
-"app-kompas-text-sync";"Kompas Text Sync";"C:\_GIT_\kompas3d-utility\app-kompas-text-sync\bin\app-kompas-text-sync.exe";"";"C:\_GIT_\kompas3d-utility\app-kompas-text-sync\assets\app.ico";"READY";"bin/<app>.exe";"C:\_GIT_\kompas3d-utility\app-kompas-text-sync\out\kompas_button_binding.txt";""
-"app-xlsx-to-kompas-tbl";"Xlsx To Kompas Tbl";"C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\bin\app-xlsx-to-kompas-tbl.exe";"";"C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\assets\app.ico";"READY";"bin/<app>.exe";"C:\_GIT_\kompas3d-utility\app-xlsx-to-kompas-tbl\out\kompas_button_binding.txt";""

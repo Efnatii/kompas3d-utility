@@ -1,5 +1,0 @@
-page.waitForFunction: Timeout 30000ms exceeded.
-    at waitForText (C:\_GIT_\kompas3d-utility\tools\e2e\browser_driver.mjs:51:14)
-    at C:\_GIT_\kompas3d-utility\tools\e2e\browser_driver.mjs:96:9 {
-  name: 'TimeoutError'
-}
