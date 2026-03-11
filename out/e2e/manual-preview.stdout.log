@@ -1,0 +1,38 @@
+WebBridge.Utility 1.0.0
+Автор: Гороховицкий Егор Русланович
+Legacy nested development config for published WebBridge.Utility preview builds.
+Режим: utility
+Config: C:\__MY_PROJECTS__\git\kompas3d-utility\out\e2e\20260310-230658\runtime\config.development.legacy.json
+
+23:10:39 info: WebBridge.Utility, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null[2000] Utility started. ListenUrl=http://127.0.0.1:38741, DebugMode=True, LogFilePath=C:\__MY_PROJECTS__\git\kompas3d-utility\out\e2e\20260310-230658\logs\utility.log, ConfigPath=C:\__MY_PROJECTS__\git\kompas3d-utility\out\e2e\20260310-230658\runtime\config.development.legacy.json.
+23:10:39 dbug: Microsoft.Extensions.Hosting.Internal.Host[1] Hosting starting
+23:10:39 info: WebBridge.Utility.UtilityBackgroundService[2301] Utility background service starting.
+23:10:39 info: WebBridge.Utility.Core.ManifestService[1301] Manifest service initialized without remote URL. Source=none.
+23:10:39 info: WebBridge.Utility.UtilityBackgroundService[2302] Manifest initialized. Waiting for UI session.
+23:10:39 info: Microsoft.Hosting.Lifetime[14] Now listening on: http://127.0.0.1:38741
+23:10:39 dbug: Microsoft.AspNetCore.Hosting.Diagnostics[13] Loaded hosting startup assembly WebBridge.Utility, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+23:10:39 info: Microsoft.Hosting.Lifetime[0] Application started. Press Ctrl+C to shut down.
+23:10:39 info: Microsoft.Hosting.Lifetime[0] Hosting environment: PagesE2ELegacyDevelopment
+23:10:39 info: Microsoft.Hosting.Lifetime[0] Content root path: C:\__LATENCY__\__KOMPAS_3D__\__UTILITY__\web-bridge-utility-v1.0.0-preview.1-win-x64\
+23:10:39 dbug: Microsoft.Extensions.Hosting.Internal.Host[2] Hosting started
+23:10:39 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[39] Connection id "0HNJUS4CS2II9" accepted.
+23:10:39 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[1] Connection id "0HNJUS4CS2II9" started.
+23:10:39 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 GET http://127.0.0.1:38741/health - - -
+23:10:39 dbug: Microsoft.AspNetCore.HostFiltering.HostFilteringMiddleware[0] Wildcard detected, all requests with hosts will be allowed.
+23:10:39 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/health'
+23:10:39 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: GET /health'
+23:10:39 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: GET /health'
+23:10:39 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:10:39 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: GET /health'
+23:10:39 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS4CS2II9" completed keep alive response.
+23:10:39 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 GET http://127.0.0.1:38741/health - 200 - application/json;+charset=utf-8 122.8124ms
+23:10:39 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[39] Connection id "0HNJUS4CS2IIA" accepted.
+23:10:39 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[1] Connection id "0HNJUS4CS2IIA" started.
+23:10:39 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 GET http://127.0.0.1:38741/config/effective - - -
+23:10:39 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/config/effective'
+23:10:39 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: GET /config/effective'
+23:10:39 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: GET /config/effective'
+23:10:39 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:10:39 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: GET /config/effective'
+23:10:39 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS4CS2IIA" completed keep alive response.
+23:10:39 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 GET http://127.0.0.1:38741/config/effective - 200 - application/json;+charset=utf-8 27.6719ms

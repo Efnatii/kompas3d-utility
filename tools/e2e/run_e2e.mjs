@@ -9,14 +9,19 @@ import { buildRuntimeConfig } from "../runtime/build_runtime_config.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..", "..");
+const webBridgeRepoRoot = "C:\\__MY_PROJECTS__\\git\\kompas3d-web-bridge";
 const docsRoot = path.join(repoRoot, "docs");
 const fixturePath = path.join(repoRoot, "xlsx-to-kompas-tbl", "fixtures", "table_M2.xlsx");
 const outputRoot = path.join(repoRoot, "out", "e2e");
+const developmentConfigCandidates = [
+  path.join(webBridgeRepoRoot, "configs", "config.development.sample.json"),
+];
 
 const utilityCandidates = [
-  path.join("C:\\_GIT_\\web-bridge-utility", "artifacts", "publish", "utility", "win-x64", "WebBridge.Utility.exe"),
-  path.join("C:\\_GIT_\\web-bridge-utility", "src", "WebBridge.Utility", "bin", "Release", "net8.0", "win-x64", "WebBridge.Utility.exe"),
-  path.join("C:\\_GIT_\\web-bridge-utility", "artifacts", "release", "web-bridge-utility-1.0.0-win-x64", "WebBridge.Utility.exe"),
+  path.join("C:\\__LATENCY__\\__KOMPAS_3D__\\__UTILITY__", "web-bridge-utility-v1.0.0-preview.1-win-x64", "WebBridge.Utility.exe"),
+  path.join(webBridgeRepoRoot, "artifacts", "publish", "agent", "win-x64", "WebBridge.Utility.exe"),
+  path.join(webBridgeRepoRoot, "src", "WebBridge.Utility", "bin", "Release", "net8.0", "win-x64", "WebBridge.Utility.exe"),
+  path.join(webBridgeRepoRoot, "src", "WebBridge.Utility", "bin", "Debug", "net8.0", "win-x64", "WebBridge.Utility.exe"),
 ];
 
 const kompasSampleCandidates = [
@@ -37,13 +42,24 @@ function nowStamp() {
 }
 
 function parseArgs(argv) {
-  const parsed = { browser: "msedge" };
+  const parsed = { browser: "msedge", utilityConfigMode: "bootstrap" };
   for (let index = 2; index < argv.length; index += 1) {
     const token = argv[index];
     const value = argv[index + 1];
     switch (token) {
       case "--browser":
         parsed.browser = value;
+        index += 1;
+        break;
+      case "--utility-exe":
+        parsed.utilityExePath = value;
+        index += 1;
+        break;
+      case "--utility-config-mode":
+        if (!["bootstrap", "development-flat", "development-legacy"].includes(value)) {
+          throw new Error(`Unknown utility config mode: ${value}`);
+        }
+        parsed.utilityConfigMode = value;
         index += 1;
         break;
       default:
@@ -64,6 +80,120 @@ function resolveExistingPath(candidates, errorMessage) {
     }
   }
   throw new Error(errorMessage);
+}
+
+function uniqueStrings(values) {
+  return [...new Set((values || []).filter(Boolean).map((value) => String(value).trim()).filter(Boolean))];
+}
+
+function cloneJson(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function loadDevelopmentComAdapter(adapterName) {
+  const templatePath = resolveExistingPath(
+    developmentConfigCandidates,
+    "config.development.sample.json was not found.",
+  );
+  const template = JSON.parse(fs.readFileSync(templatePath, "utf8"));
+  const adapter = (template.ComAdapters || []).find((candidate) =>
+    String(candidate?.AdapterName || "").toLowerCase() === String(adapterName || "").toLowerCase());
+  if (!adapter) {
+    throw new Error(`Adapter '${adapterName}' was not found in ${templatePath}.`);
+  }
+  return cloneJson(adapter);
+}
+
+function buildDevelopmentRuntimeConfig(options = {}) {
+  const templatePath = resolveExistingPath(
+    developmentConfigCandidates,
+    "config.development.sample.json was not found.",
+  );
+  const template = JSON.parse(fs.readFileSync(templatePath, "utf8"));
+  const outputPath = options.outputPath || path.join(repoRoot, "out", "e2e", "config.development.json");
+
+  template.ConfigVersion = options.configVersion || `kompas-pages-e2e-dev-${Date.now()}`;
+  template.EnvironmentName = options.environmentName || "PagesE2EDevelopment";
+  template.ListenUrl = options.listenUrl;
+  template.UiUrl = options.uiUrl;
+  template.OpenUi = "Never";
+  template.NoBrowser = true;
+  template.LogFilePath = options.logFilePath;
+  template.DiagnosticsDirectory = options.diagnosticsDirectory;
+  template.CacheDirectory = options.cacheDirectory;
+  template.ProfileDirectory = options.profileDirectory;
+  template.Security = {
+    ...(template.Security || {}),
+    PairingToken: options.pairingToken,
+    AllowedOrigins: uniqueStrings(options.allowedOrigins),
+  };
+
+  return { outputPath, config: template };
+}
+
+function buildLegacyDevelopmentRuntimeConfig(options = {}) {
+  const outputPath = options.outputPath || path.join(repoRoot, "out", "e2e", "config.development.legacy.json");
+  return {
+    outputPath,
+    config: {
+      Versions: {
+        UtilityVersion: "1.0.0",
+        ConfigVersion: options.configVersion || `kompas-pages-e2e-dev-legacy-${Date.now()}`,
+        ConfigSchemaVersion: 2,
+      },
+      Metadata: {
+        ProductName: "WebBridge.Utility",
+        Author: "Гороховицкий Егор Русланович",
+        Description: "Legacy nested development config for published WebBridge.Utility preview builds.",
+      },
+      Runtime: {
+        EnvironmentName: options.environmentName || "PagesE2ELegacyDevelopment",
+        DevMode: true,
+        NoBrowser: true,
+      },
+      Server: {
+        ListenUrl: options.listenUrl,
+      },
+      Ui: {
+        Url: options.uiUrl,
+        OpenMode: "Never",
+        SessionWaitSeconds: 5,
+      },
+      Lifecycle: {
+        ShutdownPolicy: "WhenIdle",
+        IdleSeconds: 120,
+      },
+      Logging: {
+        Level: "Debug",
+        DebugMode: true,
+        FilePath: options.logFilePath,
+      },
+      Storage: {
+        ProfileDirectory: options.profileDirectory,
+        CacheDirectory: options.cacheDirectory,
+        DiagnosticsDirectory: options.diagnosticsDirectory,
+      },
+      Catalog: {
+        Profiles: [],
+      },
+      Adapters: {
+        Com: cloneJson(options.comAdapters || []),
+        System: {},
+      },
+      Security: {
+        LoopbackOnly: true,
+        PairingToken: options.pairingToken,
+        AllowedOrigins: uniqueStrings(options.allowedOrigins),
+      },
+      Session: {
+        HeartbeatIntervalSeconds: 10,
+        HeartbeatTimeoutSeconds: 30,
+        PresenceTimeoutSeconds: 60,
+        SuppressAutoOpenOnPresenceSessions: true,
+        SweepIntervalSeconds: 2,
+      },
+    },
+  };
 }
 
 function startStaticServer(rootPath, host, port) {
@@ -159,19 +289,6 @@ async function executeCommand(baseUrl, pairingToken, origin, profileId, commandI
   return execution;
 }
 
-function parseStdoutJson(execution) {
-  const result = execution?.result;
-  if (!result?.hasExited) {
-    throw new Error("Process result is missing.");
-  }
-
-  const stdout = String(result.stdout || "").trim();
-  if (!stdout) {
-    return {};
-  }
-  return JSON.parse(stdout);
-}
-
 function stopChild(child) {
   return new Promise((resolve) => {
     if (!child || child.exitCode !== null) {
@@ -208,13 +325,24 @@ async function main() {
   const staticUrl = `http://${pagesHost}:${pagesPort}/index.html`;
   const pagesOrigin = `http://${pagesHost}:${pagesPort}`;
   const utilityUrl = `http://127.0.0.1:${utilityPort}`;
-  const pairingToken = "kompas-pages-e2e";
-  const utilityExePath = resolveExistingPath(utilityCandidates, "WebBridge.Utility.exe was not found.");
+  const pairingToken = args.utilityConfigMode === "bootstrap"
+    ? "kompas-pages-local"
+    : "replace-this-token";
+  const utilityExePath = args.utilityExePath
+    ? path.resolve(args.utilityExePath)
+    : resolveExistingPath(utilityCandidates, "WebBridge.Utility.exe was not found.");
   const kompasSamplePath = resolveExistingPath(kompasSampleCandidates, "KOMPAS sample drawing was not found.");
   const outputTablePath = path.join(workspaceRoot, "table_M2.e2e.tbl");
 
-  const runtime = buildRuntimeConfig({
-    outputPath: path.join(runtimeRoot, "config.bootstrap.json"),
+  const runtimeOptions = {
+    outputPath: path.join(
+      runtimeRoot,
+      args.utilityConfigMode === "bootstrap"
+        ? "config.bootstrap.json"
+        : args.utilityConfigMode === "development-flat"
+          ? "config.development.json"
+          : "config.development.legacy.json",
+    ),
     listenUrl: utilityUrl,
     uiUrl: staticUrl,
     pairingToken,
@@ -226,9 +354,21 @@ async function main() {
     diagnosticsDirectory: path.join(runtimeRoot, "diagnostics"),
     profileDirectory: path.join(runtimeRoot, "profiles"),
     cacheDirectory: path.join(runtimeRoot, "cache"),
-    environmentName: "PagesE2E",
-    configVersion: `kompas-pages-e2e-${stamp}`,
-  });
+    environmentName: args.utilityConfigMode === "bootstrap"
+      ? "PagesE2E"
+      : args.utilityConfigMode === "development-flat"
+        ? "PagesE2EDevelopment"
+        : "PagesE2ELegacyDevelopment",
+    configVersion: `kompas-pages-e2e-${args.utilityConfigMode}-${stamp}`,
+    comAdapters: args.utilityConfigMode === "development-legacy"
+      ? [loadDevelopmentComAdapter("kompas")]
+      : [],
+  };
+  const runtime = args.utilityConfigMode === "bootstrap"
+    ? buildRuntimeConfig(runtimeOptions)
+    : args.utilityConfigMode === "development-flat"
+      ? buildDevelopmentRuntimeConfig(runtimeOptions)
+      : buildLegacyDevelopmentRuntimeConfig(runtimeOptions);
   fs.writeFileSync(runtime.outputPath, `${JSON.stringify(runtime.config, null, 2)}\n`, "utf8");
 
   const server = await startStaticServer(docsRoot, pagesHost, pagesPort);
@@ -246,6 +386,8 @@ async function main() {
   const report = {
     success: false,
     artifactRoot,
+    utilityConfigMode: args.utilityConfigMode,
+    utilityExePath,
     utilityUrl,
     staticUrl,
     outputTablePath,
@@ -264,7 +406,7 @@ async function main() {
     page.setDefaultTimeout(60000);
 
     await page.goto(
-      `${staticUrl}?utilityUrl=${encodeURIComponent(utilityUrl)}&pairingToken=${encodeURIComponent(pairingToken)}&autoConnect=1&workspaceRoot=${encodeURIComponent(repoRoot)}`,
+      staticUrl,
       { waitUntil: "networkidle" },
     );
     await page.screenshot({ path: path.join(screenshotsRoot, "00-loaded.png"), fullPage: true });
@@ -272,6 +414,9 @@ async function main() {
     await page.locator("#bridge-badge").filter({ hasText: "bridge online" }).waitFor();
     await page.locator("#runtime-badge").filter({ hasText: "runtime ready" }).waitFor();
     await page.locator('.module-host[data-module-id="xlsx-to-kompas-tbl"].is-active').waitFor();
+    if (await page.locator("#connect-button").count() !== 0) {
+      throw new Error("Bridge connect button should be absent.");
+    }
 
     const tabCount = await page.locator(".rail__tab").count();
     if (tabCount < 3) {
@@ -284,23 +429,23 @@ async function main() {
       pagesOrigin,
       "kompas-pages-executor",
       "xlsx-to-kompas-tbl.open-document",
-      {
-        stdin: JSON.stringify({ documentPath: kompasSamplePath }),
-      },
+      { path: kompasSamplePath },
       60000,
     );
-    const openPayload = parseStdoutJson(openExecution);
-    if (!openPayload.success) {
-      throw new Error(`Failed to open sample drawing: ${JSON.stringify(openPayload)}`);
+    if (!openExecution.result?.handleId) {
+      throw new Error(`Failed to open sample drawing: ${JSON.stringify(openExecution)}`);
     }
 
-    await page.locator("#xlsx-refresh-status").click();
     await page.locator("#module-badge").filter({ hasText: "doc ok" }).waitFor();
     await page.screenshot({ path: path.join(screenshotsRoot, "10-status.png"), fullPage: true });
 
     await page.locator("#xlsx-file-input").setInputFiles(fixturePath);
     await page.locator("#xlsx-matrix-size").filter({ hasText: "8 x 13" }).waitFor();
     await page.locator("#xlsx-preview-table").filter({ hasText: "M2.2" }).waitFor();
+    const autoFollowPath = await page.locator("#xlsx-output-path").inputValue();
+    if (!autoFollowPath || !autoFollowPath.toLowerCase().endsWith(".tbl")) {
+      throw new Error(`Expected auto-follow output path, got: ${autoFollowPath}`);
+    }
     await page.screenshot({ path: path.join(screenshotsRoot, "20-uploaded.png"), fullPage: true });
 
     await page.locator("#xlsx-output-path").fill(outputTablePath);
@@ -348,7 +493,7 @@ async function main() {
       outputTableSize: outputStat.size,
       downloadedPath,
       downloadedSize: fs.statSync(downloadedPath).size,
-      openDocumentPayload: openPayload,
+      autoFollowPath,
     });
     fs.writeFileSync(path.join(artifactRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

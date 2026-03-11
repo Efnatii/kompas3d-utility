@@ -1,0 +1,11 @@
+Unhandled exception. System.Text.Json.JsonException: Unsupported config field 'AgentVersion'. Use the nested schema blocks only.
+   at WebBridge.Utility.Protocol.UtilitySettingsJsonConverter.Read(Utf8JsonReader& reader, Type typeToConvert, JsonSerializerOptions options)
+   at System.Text.Json.Serialization.JsonConverter`1.TryRead(Utf8JsonReader& reader, Type typeToConvert, JsonSerializerOptions options, ReadStack& state, T& value, Boolean& isPopulatedValue)
+   at System.Text.Json.Serialization.JsonConverter`1.ReadCore(Utf8JsonReader& reader, JsonSerializerOptions options, ReadStack& state)
+   at System.Text.Json.JsonSerializer.ReadFromSpan[TValue](ReadOnlySpan`1 utf8Json, JsonTypeInfo`1 jsonTypeInfo, Nullable`1 actualByteCount)
+   at System.Text.Json.JsonSerializer.ReadFromSpan[TValue](ReadOnlySpan`1 json, JsonTypeInfo`1 jsonTypeInfo)
+   at System.Text.Json.JsonSerializer.Deserialize[TValue](String json, JsonSerializerOptions options)
+   at WebBridge.Utility.UtilityCli.LoadStructuredConfig(String path)
+   at WebBridge.Utility.UtilityCli.BuildEffectiveSettings(UtilityCommandLineOptions options, IConfiguration configuration)
+   at WebBridge.Utility.Program.Main(String[] args)
+   at WebBridge.Utility.Program.<Main>(String[] args)

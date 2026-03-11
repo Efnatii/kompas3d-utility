@@ -1,0 +1,176 @@
+WebBridge.Utility 1.0.0
+Автор: Гороховицкий Егор Русланович
+Legacy nested development config for published WebBridge.Utility preview builds.
+Режим: utility
+Config: C:\__MY_PROJECTS__\git\kompas3d-utility\out\e2e\20260310-231643\runtime\config.development.legacy.json
+
+23:16:43 info: WebBridge.Utility, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null[2000] Utility started. ListenUrl=http://127.0.0.1:38741, DebugMode=True, LogFilePath=C:\__MY_PROJECTS__\git\kompas3d-utility\out\e2e\20260310-231643\logs\utility.log, ConfigPath=C:\__MY_PROJECTS__\git\kompas3d-utility\out\e2e\20260310-231643\runtime\config.development.legacy.json.
+23:16:43 dbug: Microsoft.Extensions.Hosting.Internal.Host[1] Hosting starting
+23:16:44 info: WebBridge.Utility.UtilityBackgroundService[2301] Utility background service starting.
+23:16:44 info: WebBridge.Utility.Core.ManifestService[1301] Manifest service initialized without remote URL. Source=none.
+23:16:44 info: WebBridge.Utility.UtilityBackgroundService[2302] Manifest initialized. Waiting for UI session.
+23:16:44 info: Microsoft.Hosting.Lifetime[14] Now listening on: http://127.0.0.1:38741
+23:16:44 dbug: Microsoft.AspNetCore.Hosting.Diagnostics[13] Loaded hosting startup assembly WebBridge.Utility, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null
+23:16:44 info: Microsoft.Hosting.Lifetime[0] Application started. Press Ctrl+C to shut down.
+23:16:44 info: Microsoft.Hosting.Lifetime[0] Hosting environment: PagesE2ELegacyDevelopment
+23:16:44 info: Microsoft.Hosting.Lifetime[0] Content root path: C:\__LATENCY__\__KOMPAS_3D__\__UTILITY__\web-bridge-utility-v1.0.0-preview.1-win-x64\
+23:16:44 dbug: Microsoft.Extensions.Hosting.Internal.Host[2] Hosting started
+23:16:44 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[39] Connection id "0HNJUS7PI9340" accepted.
+23:16:44 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[1] Connection id "0HNJUS7PI9340" started.
+23:16:44 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 GET http://127.0.0.1:38741/health - - -
+23:16:44 dbug: Microsoft.AspNetCore.HostFiltering.HostFilteringMiddleware[0] Wildcard detected, all requests with hosts will be allowed.
+23:16:44 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/health'
+23:16:44 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: GET /health'
+23:16:44 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: GET /health'
+23:16:44 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:44 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: GET /health'
+23:16:44 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9340" completed keep alive response.
+23:16:44 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 GET http://127.0.0.1:38741/health - 200 - application/json;+charset=utf-8 175.4489ms
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[39] Connection id "0HNJUS7PI9341" accepted.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[1] Connection id "0HNJUS7PI9341" started.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/session/register - - -
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint '405 HTTP Method Not Supported'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/session/register - 204 - - 10.0061ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 POST http://127.0.0.1:38741/session/register - application/json 82
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: POST /session/register'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: POST /session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[25] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000002": started reading request body.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[26] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000002": done reading request body.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[1] Setting HTTP status code 401.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: POST /session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 POST http://127.0.0.1:38741/session/register - 401 - application/json;+charset=utf-8 46.9800ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 POST http://127.0.0.1:38741/session/register - application/json 82
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: POST /session/register'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: POST /session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[25] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000003": started reading request body.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[26] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000003": done reading request body.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[1] Setting HTTP status code 401.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: POST /session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 POST http://127.0.0.1:38741/session/register - 401 - application/json;+charset=utf-8 9.3564ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 POST http://127.0.0.1:38741/session/register - application/json 82
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: POST /session/register'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: POST /session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[25] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000004": started reading request body.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[26] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000004": done reading request body.
+23:16:45 info: WebBridge.Utility.Core.SessionManager[1000] Registered session dd40e9f968d64ecf9d7198357515d8f7 for client kompas-pages-executor.
+23:16:45 info: WebBridge.Utility.Api[2100] Registered UI session dd40e9f968d64ecf9d7198357515d8f7 for client kompas-pages-executor. Active sessions: 0.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: POST /session/register'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 POST http://127.0.0.1:38741/session/register - 200 - application/json;+charset=utf-8 30.0027ms
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[39] Connection id "0HNJUS7PI9342" accepted.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[1] Connection id "0HNJUS7PI9342" started.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 GET http://127.0.0.1:38741/ws/session?sessionId=dd40e9f968d64ecf9d7198357515d8f7&token=replace-this-token - - -
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/ws/session'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint '/ws/session'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint '/ws/session'
+23:16:45 info: WebBridge.Utility.Core.IdleShutdownSupervisor[1100] Idle shutdown monitoring enabled. Policy=WhenIdle, Timeout=00:02:00.
+23:16:45 info: WebBridge.Utility.WebSocket[2105] Accepted WebSocket for session dd40e9f968d64ecf9d7198357515d8f7.
+23:16:45 info: WebBridge.Utility.Core.IdleShutdownSupervisor[1103] Idle shutdown countdown armed for 03/10/2026 20:18:45 +00:00.
+23:16:45 info: WebBridge.Utility.Core.SessionManager[1002] Active session count changed from 0 to 1 for session dd40e9f968d64ecf9d7198357515d8f7.
+23:16:45 info: WebBridge.Utility.UtilityBackgroundService[2306] Active UI session count changed to 1.
+23:16:45 info: WebBridge.Utility.Core.IdleShutdownSupervisor[1101] Idle shutdown cancelled because active sessions are present.
+23:16:45 dbug: WebBridge.Utility.WebSocket[2106] Received hello for session dd40e9f968d64ecf9d7198357515d8f7.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/effective - - -
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/config/effective'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint '405 HTTP Method Not Supported'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/effective - 204 - - 5.4249ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 GET http://127.0.0.1:38741/config/effective - application/json -
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/config/effective'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: GET /config/effective'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: GET /config/effective'
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: GET /config/effective'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 GET http://127.0.0.1:38741/config/effective - 200 - application/json;+charset=utf-8 46.2437ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/load - - -
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/config/load'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint '405 HTTP Method Not Supported'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/config/load - 204 - - 9.5537ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 POST http://127.0.0.1:38741/config/load - application/json 8101
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/config/load'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: POST /config/load'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: POST /config/load'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[25] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000008": started reading request body.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[26] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:00000008": done reading request body.
+23:16:45 info: WebBridge.Utility.Core.ManifestService[1301] Manifest service initialized without remote URL. Source=none.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[1] Setting HTTP status code 200.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: POST /config/load'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 POST http://127.0.0.1:38741/config/load - 200 - application/json;+charset=utf-8 68.2132ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 OPTIONS http://127.0.0.1:38741/commands/execute - - -
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/commands/execute'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint '405 HTTP Method Not Supported'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 OPTIONS http://127.0.0.1:38741/commands/execute - 204 - - 11.4953ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 148
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/commands/execute'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: POST /commands/execute'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: POST /commands/execute'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[25] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:0000000A": started reading request body.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[26] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:0000000A": done reading request body.
+23:16:45 info: WebBridge.Utility.Api[2102] Executing command kompas-pages-executor/system.path.get-temp-path.
+23:16:45 info: WebBridge.Utility.Core.CommandDispatcher[1200] Dispatching command kompas-pages-executor/system.path.get-temp-path.
+23:16:45 info: WebBridge.Utility.Core.CommandDispatcher[1206] Invoke command kompas-pages-executor/system.path.get-temp-path finished. Success=True.
+23:16:45 info: WebBridge.Utility.Api[2103] Command kompas-pages-executor/system.path.get-temp-path finished. Success=True. ExecutionId=36d76719c9db4dbfb1b6182506e8d26d.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[1] Setting HTTP status code 200.
+23:16:45 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: POST /commands/execute'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 200 - application/json;+charset=utf-8 89.7177ms
+23:16:45 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 158
+23:16:45 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/commands/execute'
+23:16:45 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: POST /commands/execute'
+23:16:45 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: POST /commands/execute'
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[25] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:0000000B": started reading request body.
+23:16:45 dbug: Microsoft.AspNetCore.Server.Kestrel[26] Connection id "0HNJUS7PI9341", Request id "0HNJUS7PI9341:0000000B": done reading request body.
+23:16:45 info: WebBridge.Utility.Api[2102] Executing command kompas-pages-executor/xlsx-to-kompas-tbl.application.info.
+23:16:45 info: WebBridge.Utility.Core.CommandDispatcher[1200] Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.application.info.
+23:16:45 fail: WebBridge.Utility.Core.CommandDispatcher[1205] Failed to compile command kompas-pages-executor/xlsx-to-kompas-tbl.application.info. System.InvalidOperationException: Adapter invoke surface 'kompas' is not registered.    at WebBridge.Utility.Core.CommandPlanCompiler.<>c__DisplayClass3_0.<Compile>b__0(String _)    at System.Collections.Concurrent.ConcurrentDictionary`2.GetOrAdd(TKey key, Func`2 valueFactory)    at WebBridge.Utility.Core.CommandPlanCompiler.Compile(ProfileDefinition profile, CommandDefinition definition)    at WebBridge.Utility.Core.CommandDispatcher.ExecuteSingleAsync(ExecuteCommandRequest request, CancellationToken cancellationToken)
+23:16:46 info: WebBridge.Utility.Api[2103] Command kompas-pages-executor/xlsx-to-kompas-tbl.application.info finished. Success=False. ExecutionId=37b8a26d5dff44409f9304821d8ff162.
+23:16:46 info: Microsoft.AspNetCore.Http.Result.JsonResult[1] Setting HTTP status code 400.
+23:16:46 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:46 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: POST /commands/execute'
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9341" completed keep alive response.
+23:16:46 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 400 - application/json;+charset=utf-8 25.8353ms
+23:16:46 info: Microsoft.AspNetCore.Hosting.Diagnostics[1] Request starting HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - application/json 228
+23:16:46 dbug: Microsoft.AspNetCore.Routing.Matching.DfaMatcher[1001] 1 candidate(s) found for the request path '/commands/execute'
+23:16:46 dbug: Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware[1] Request matched endpoint 'HTTP: POST /commands/execute'
+23:16:46 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0] Executing endpoint 'HTTP: POST /commands/execute'
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel[25] Connection id "0HNJUS7PI9340", Request id "0HNJUS7PI9340:00000002": started reading request body.
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel[26] Connection id "0HNJUS7PI9340", Request id "0HNJUS7PI9340:00000002": done reading request body.
+23:16:46 info: WebBridge.Utility.Api[2102] Executing command kompas-pages-executor/xlsx-to-kompas-tbl.open-document.
+23:16:46 info: WebBridge.Utility.Core.CommandDispatcher[1200] Dispatching command kompas-pages-executor/xlsx-to-kompas-tbl.open-document.
+23:16:46 fail: WebBridge.Utility.Core.CommandDispatcher[1205] Failed to compile command kompas-pages-executor/xlsx-to-kompas-tbl.open-document. System.InvalidOperationException: Adapter invoke surface 'kompas' is not registered.    at WebBridge.Utility.Core.CommandPlanCompiler.<>c__DisplayClass3_0.<Compile>b__0(String _)    at System.Collections.Concurrent.ConcurrentDictionary`2.GetOrAdd(TKey key, Func`2 valueFactory)    at WebBridge.Utility.Core.CommandPlanCompiler.Compile(ProfileDefinition profile, CommandDefinition definition)    at WebBridge.Utility.Core.CommandDispatcher.ExecuteSingleAsync(ExecuteCommandRequest request, CancellationToken cancellationToken)
+23:16:46 info: WebBridge.Utility.Api[2103] Command kompas-pages-executor/xlsx-to-kompas-tbl.open-document finished. Success=False. ExecutionId=89abde7884d04c2299d127e3d4c6151a.
+23:16:46 info: Microsoft.AspNetCore.Http.Result.JsonResult[1] Setting HTTP status code 400.
+23:16:46 info: Microsoft.AspNetCore.Http.Result.JsonResult[3] Writing value of type 'ApiEnvelope`1' as Json.
+23:16:46 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint 'HTTP: POST /commands/execute'
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[9] Connection id "0HNJUS7PI9340" completed keep alive response.
+23:16:46 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 POST http://127.0.0.1:38741/commands/execute - 400 - application/json;+charset=utf-8 32.3650ms
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets[6] Connection id "0HNJUS7PI9342" received FIN.
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets[7] Connection id "0HNJUS7PI9342" sending FIN because: "The Socket transport's send loop completed gracefully."
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets[6] Connection id "0HNJUS7PI9341" received FIN.
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[10] Connection id "0HNJUS7PI9342" disconnecting.
+23:16:46 info: WebBridge.Utility.Core.SessionManager[1002] Active session count changed from 1 to 0 for session dd40e9f968d64ecf9d7198357515d8f7.
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets[7] Connection id "0HNJUS7PI9341" sending FIN because: "The Socket transport's send loop completed gracefully."
+23:16:46 info: WebBridge.Utility.UtilityBackgroundService[2306] Active UI session count changed to 0.
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[10] Connection id "0HNJUS7PI9341" disconnecting.
+23:16:46 info: WebBridge.Utility.Core.IdleShutdownSupervisor[1103] Idle shutdown countdown armed for 03/10/2026 20:18:46 +00:00.
+23:16:46 info: WebBridge.Utility.WebSocket[2108] Closed WebSocket for session dd40e9f968d64ecf9d7198357515d8f7.
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[2] Connection id "0HNJUS7PI9341" stopped.
+23:16:46 info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1] Executed endpoint '/ws/session'
+23:16:46 info: Microsoft.AspNetCore.Hosting.Diagnostics[2] Request finished HTTP/1.1 GET http://127.0.0.1:38741/ws/session?sessionId=dd40e9f968d64ecf9d7198357515d8f7&token=replace-this-token - 101 - - 1275.0437ms
+23:16:46 dbug: Microsoft.AspNetCore.Server.Kestrel.Connections[2] Connection id "0HNJUS7PI9342" stopped.

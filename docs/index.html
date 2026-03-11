@@ -23,46 +23,24 @@
       <header class="topbar">
         <div>
           <h1>KOMPAS Pages Executor</h1>
-          <p>Статический Github Pages UI Executor для WebBridge.Utility. Вкладки модульные, сейчас включён только xlsx-to-kompas-tbl.</p>
+          <p>Remote-updatable UI для install-once WebBridge.Utility. Страница сама подключается к локальному bridge и сама догружает runtime overlay.</p>
         </div>
         <div class="topbar__status">
-          <span class="badge badge--dim" id="bridge-badge">bridge offline</span>
+          <span class="badge badge--dim" id="bridge-badge">bridge wait</span>
           <span class="badge badge--dim" id="runtime-badge">runtime idle</span>
           <span class="badge badge--dim" id="module-badge">module idle</span>
         </div>
       </header>
 
-      <section class="panel panel--bridge">
-        <div class="panel__head">
-          <h2>Bridge</h2>
-          <div class="action-row">
-            <button class="button" type="button" id="connect-button">Connect</button>
-            <button class="button button--ghost" type="button" id="disconnect-button">Disconnect</button>
-            <button class="button button--ghost" type="button" id="reload-runtime-button">Reload runtime</button>
-          </div>
-        </div>
-        <div class="bridge-grid">
-          <label class="field">
-            <span>Utility URL</span>
-            <input id="utility-url" type="text" spellcheck="false">
-          </label>
-          <label class="field">
-            <span>Pairing token</span>
-            <input id="pairing-token" type="password" spellcheck="false" autocomplete="off">
-          </label>
-          <label class="field">
-            <span>Workspace root</span>
-            <input id="workspace-root" type="text" spellcheck="false">
-          </label>
-        </div>
+      <section class="panel">
         <div class="meta-grid">
           <div class="meta-item">
             <span>Bridge</span>
-            <strong id="bridge-meta">Сессия не зарегистрирована.</strong>
+            <strong id="bridge-meta">Автоподключение к локальному WebBridge.Utility.</strong>
           </div>
           <div class="meta-item">
             <span>Runtime</span>
-            <strong id="runtime-meta">Runtime ещё не загружен.</strong>
+            <strong id="runtime-meta">Runtime overlay ещё не активен.</strong>
           </div>
           <div class="meta-item">
             <span>Module</span>

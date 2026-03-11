@@ -221,12 +221,6 @@ textarea:focus-visible {
   margin-bottom: 10px;
 }
 
-.bridge-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 310px;
@@ -250,7 +244,7 @@ textarea:focus-visible {
 
 .field input,
 .textarea,
-.mode-button {
+.field-inline .button {
   min-height: 34px;
 }
 
@@ -261,6 +255,18 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   background: #ffffff;
   color: var(--ink);
+}
+
+.field-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.field__hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 .button {
@@ -278,6 +284,11 @@ textarea:focus-visible {
 .button--ghost {
   background: #ffffff;
   color: var(--ink);
+}
+
+.button--ghost.is-active {
+  background: var(--ink);
+  color: #ffffff;
 }
 
 .button:disabled {
@@ -358,26 +369,44 @@ textarea:focus-visible {
   text-align: right;
 }
 
-.mode-switch {
-  display: inline-flex;
-  border: 1px solid var(--line);
+.dropzone {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  background:
+    linear-gradient(180deg, #fafafa, #f0f0f0),
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.025) 0,
+      rgba(0, 0, 0, 0.025) 1px,
+      transparent 1px,
+      transparent 20px
+    );
 }
 
-.mode-button {
-  min-width: 82px;
-  border: 0;
-  background: #efefef;
-  cursor: pointer;
-  text-transform: lowercase;
+.dropzone.is-dragging {
+  background: #0f0f0f;
+  color: #f6f6f6;
+  border-style: solid;
 }
 
-.mode-button + .mode-button {
-  border-left: 1px solid var(--line);
+.dropzone__copy {
+  display: grid;
+  gap: 4px;
 }
 
-.mode-button.is-active {
-  background: var(--ink);
-  color: #ffffff;
+.dropzone__copy strong {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.dropzone__copy span {
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .field-grid {
@@ -472,7 +501,6 @@ textarea:focus-visible {
   }
 
   .topbar,
-  .bridge-grid,
   .meta-grid,
   .module-grid,
   .field-grid {
@@ -480,7 +508,12 @@ textarea:focus-visible {
   }
 
   .topbar,
-  .panel__head {
+  .panel__head,
+  .dropzone {
     flex-direction: column;
+  }
+
+  .field-inline {
+    grid-template-columns: 1fr;
   }
 }

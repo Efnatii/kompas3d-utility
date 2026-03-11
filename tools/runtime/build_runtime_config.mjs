@@ -14,60 +14,46 @@ function buildRuntimeConfig(options = {}) {
   const outputPath = options.outputPath || path.join(repoRoot, "out", "web-pages-runtime", "config.bootstrap.json");
   const listenUrl = options.listenUrl || "http://127.0.0.1:38741";
   const uiUrl = options.uiUrl || "http://127.0.0.1:5511/index.html";
-  const pairingToken = options.pairingToken || "replace-this-token";
+  const pairingToken = options.pairingToken || "kompas-pages-local";
   const allowedOrigins = uniqueStrings(options.allowedOrigins || ["http://127.0.0.1:5511", "http://localhost:5511"]);
-  const logFilePath = options.logFilePath || path.join(repoRoot, "out", "web-pages-runtime", "utility.log");
-  const diagnosticsDirectory = options.diagnosticsDirectory || path.join(repoRoot, "out", "web-pages-runtime", "diagnostics");
-  const profileDirectory = options.profileDirectory || path.join(repoRoot, "out", "web-pages-runtime", "profiles");
-  const cacheDirectory = options.cacheDirectory || path.join(repoRoot, "out", "web-pages-runtime", "cache");
+  const dataRoot = options.dataRoot || path.join(repoRoot, "out", "web-pages-runtime");
+  const logFilePath = options.logFilePath || path.join(dataRoot, "utility.log");
+  const diagnosticsDirectory = options.diagnosticsDirectory || path.join(dataRoot, "diagnostics");
+  const profileDirectory = options.profileDirectory || path.join(dataRoot, "profiles");
+  const cacheDirectory = options.cacheDirectory || path.join(dataRoot, "cache");
 
   const config = {
-    Versions: {
-      UtilityVersion: "1.0.0",
-      ConfigVersion: options.configVersion || `kompas-pages-bootstrap-${new Date().toISOString()}`,
-      ConfigSchemaVersion: 2,
-    },
+    AgentVersion: "1.0.0",
+    ConfigVersion: options.configVersion || `kompas-pages-bootstrap-${new Date().toISOString()}`,
+    ConfigSchemaVersion: 1,
     Metadata: {
       ProductName: "KOMPAS Pages Executor",
       ProductCode: "kompas3d-utility.pages.executor",
       Author: "Codex",
-      Description: "Bootstrap config for static Pages executor over WebBridge.Utility.",
+      Description: "Bootstrap config for remote-updatable KOMPAS Pages UI over WebBridge.Utility.",
       RepositoryUrl: "https://github.com/Efnatii/kompas3d-utility",
     },
-    Runtime: {
-      EnvironmentName: options.environmentName || "PagesBootstrap",
-      DevMode: false,
-      NoBrowser: true,
+    EnvironmentName: options.environmentName || "PagesBootstrap",
+    ListenUrl: listenUrl,
+    UiUrl: uiUrl,
+    OpenUi: "Never",
+    Shutdown: "WhenIdle",
+    IdleSeconds: Number.isFinite(options.idleSeconds) ? Number(options.idleSeconds) : 180,
+    SessionWaitSeconds: 5,
+    LogLevel: options.logLevel || "Information",
+    DebugMode: Boolean(options.debugMode),
+    LogFilePath: logFilePath,
+    ProfileDirectory: profileDirectory,
+    CacheDirectory: cacheDirectory,
+    DiagnosticsDirectory: diagnosticsDirectory,
+    Profiles: [],
+    ComAdapters: [],
+    SystemAdapter: {
+      AllowedTypeNames: [],
+      AllowedProcessExecutables: [],
     },
-    Server: {
-      ListenUrl: listenUrl,
-    },
-    Ui: {
-      Url: uiUrl,
-      OpenMode: "Never",
-      SessionWaitSeconds: 5,
-    },
-    Lifecycle: {
-      ShutdownPolicy: "WhenIdle",
-      IdleSeconds: Number.isFinite(options.idleSeconds) ? Number(options.idleSeconds) : 180,
-    },
-    Logging: {
-      Level: options.logLevel || "Information",
-      DebugMode: Boolean(options.debugMode),
-      FilePath: logFilePath,
-    },
-    Storage: {
-      ProfileDirectory: profileDirectory,
-      CacheDirectory: cacheDirectory,
-      DiagnosticsDirectory: diagnosticsDirectory,
-    },
-    Catalog: {
-      Profiles: [],
-    },
-    Adapters: {
-      Com: [],
-      System: {},
-    },
+    DevMode: false,
+    NoBrowser: true,
     Security: {
       LoopbackOnly: true,
       PairingToken: pairingToken,

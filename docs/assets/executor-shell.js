@@ -1,13 +1,79 @@
-const STORAGE_KEY = "kompas-pages.executor.settings";
-
 const EXECUTOR_PROFILE_ID = "kompas-pages-executor";
+const DEFAULT_UTILITY_URL = "http://127.0.0.1:38741";
+const DEFAULT_PAIRING_TOKENS = ["kompas-pages-local", "replace-this-token"];
+const UI_FINGERPRINT_SALT = "kompas-pages-ui:v1";
+const CONNECT_BACKOFF_MS = [1000, 2000, 5000];
+const RUNTIME_PROFILE_DESCRIPTION = "Browser-managed runtime overlay for remote-updatable KOMPAS Pages UI.";
 
 const DEFAULT_EXECUTOR_SETTINGS = {
-  utilityUrl: "http://127.0.0.1:38741",
-  pairingToken: "replace-this-token",
-  workspaceRoot: "C:\\_GIT_\\kompas3d-utility",
+  utilityUrl: DEFAULT_UTILITY_URL,
   clientName: "kompas-pages-executor",
-  uiVersion: "1.0.0",
+  uiVersion: "2.0.0",
+  defaultPairingTokens: [...DEFAULT_PAIRING_TOKENS],
+};
+
+const KOMPAS_COM_ADAPTER = {
+  AdapterName: "kompas",
+  DisplayName: "KOMPAS",
+  DispatcherName: "KOMPAS COM",
+  DefaultProgIds: ["KOMPAS.Application.7", "KOMPAS.Application.5"],
+  ComErrorCode: "kompas_com_error",
+  InvokeErrorCode: "kompas_invoke_failed",
+  UnavailableErrorCode: "adapter_unavailable",
+  UnavailableMessage: "KOMPAS COM runtime is not available.",
+  ReuseApplication: true,
+  ReuseDocumentContext: true,
+  BusyRetryMaxAttempts: 8,
+  BusyRetryDelaysMs: [25, 50, 100, 150, 250, 400, 600, 800],
+  CompactReportDefault: false,
+  RealtimeAssignments: [
+    { Member: "Visible", Value: true },
+  ],
+  VisibleApplicationAssignments: [
+    { Member: "Visible", Value: true },
+  ],
+  ResultHints: [
+    {
+      Name: "application",
+      MatchCurrentApplicationReference: true,
+      RequiredAllMembers: ["Documents", "Visible"],
+      Fields: [
+        { Name: "connected", StaticValue: true },
+        { Name: "progId", UseRuntimeProgId: true },
+        { Name: "visible", MemberPaths: ["Visible"] },
+        { Name: "version", MemberPaths: ["Version"] },
+      ],
+      CompactFields: [
+        { Name: "progId", UseRuntimeProgId: true },
+        { Name: "visible", MemberPaths: ["Visible"] },
+      ],
+    },
+    {
+      Name: "view",
+      RequiredAllMembers: ["Layers", "Name"],
+      Fields: [
+        { Name: "name", MemberPaths: ["Name"] },
+        { Name: "scale", MemberPaths: ["Scale"] },
+        { Name: "angle", MemberPaths: ["Angle"] },
+      ],
+      CompactFields: [
+        { Name: "name", MemberPaths: ["Name"] },
+      ],
+    },
+    {
+      Name: "document",
+      RequiredAllMembers: ["Type"],
+      RequiredAnyMembers: ["PathName", "Name"],
+      Fields: [
+        { Name: "name", MemberPaths: ["Name"] },
+        { Name: "path", MemberPaths: ["PathName"] },
+        { Name: "type", MemberPaths: ["Type"] },
+      ],
+      CompactFields: [
+        { Name: "path", MemberPaths: ["PathName", "Name"] },
+      ],
+    },
+  ],
 };
 
 function cloneJson(value) {
@@ -18,10 +84,14 @@ function toArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function ensureObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 function uniqueStrings(values) {
   const seen = new Set();
   const result = [];
-  for (const value of values) {
+  for (const value of toArray(values)) {
     if (typeof value !== "string") {
       continue;
     }
@@ -39,36 +109,471 @@ function uniqueStrings(values) {
   return result;
 }
 
-function findCaseInsensitiveKey(source, key) {
-  if (!source || typeof source !== "object") {
-    return undefined;
+function uniqueByKey(values, keySelector) {
+  const result = [];
+  const seen = new Set();
+  for (const value of values) {
+    const key = String(keySelector(value) || "").trim().toLowerCase();
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(value);
   }
-  if (Object.prototype.hasOwnProperty.call(source, key)) {
-    return key;
-  }
-  const wanted = String(key).toLowerCase();
-  return Object.keys(source).find((entry) => entry.toLowerCase() === wanted);
+  return result;
 }
 
-function getCaseInsensitive(source, key, fallback = undefined) {
-  const matchedKey = findCaseInsensitiveKey(source, key);
-  return matchedKey ? source[matchedKey] : fallback;
+function normalizeStringPart(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
-function ensureObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+function normalizeNumberPart(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? String(Math.trunc(numeric)) : "0";
+}
+
+function normalizeArrayForCompare(values) {
+  return uniqueStrings(toArray(values)).map((value) => value.toLowerCase()).sort();
 }
 
 function formatStamp() {
   return new Date().toLocaleTimeString("ru-RU", { hour12: false });
 }
 
-function basePageUrl() {
-  return `${window.location.origin}${window.location.pathname}`;
+function basePageUrl(locationLike = globalThis.location) {
+  if (!locationLike?.origin || !locationLike?.pathname) {
+    return "";
+  }
+  return `${locationLike.origin}${locationLike.pathname}`;
 }
 
-function buildPowerShellArguments(scriptPath, action) {
-  return `-NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" -Action ${action}`;
+function normalizeWindowsPath(value) {
+  return String(value || "")
+    .replace(/\//g, "\\")
+    .replace(/\\{2,}/g, "\\");
+}
+
+function dirname(filePath) {
+  const value = normalizeWindowsPath(filePath);
+  const index = value.lastIndexOf("\\");
+  return index >= 0 ? value.slice(0, index) : "";
+}
+
+function unwrapEnvelope(payload) {
+  if (payload && typeof payload === "object" && Object.prototype.hasOwnProperty.call(payload, "payload")) {
+    return payload.payload;
+  }
+  return payload;
+}
+
+function extractApiError(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  if (payload.error && typeof payload.error === "object") {
+    return payload.error;
+  }
+  if (payload.payload && typeof payload.payload === "object" && payload.payload.error) {
+    return payload.payload.error;
+  }
+  return null;
+}
+
+function formatHttpError(action, response, payload) {
+  const apiError = extractApiError(payload);
+  if (apiError?.code === "pairing_token_invalid") {
+    return `${action}: invalid pairing token`;
+  }
+  if (apiError?.code === "origin_not_allowed") {
+    return `${action}: origin is not allowed`;
+  }
+  if (apiError?.code === "origin_missing") {
+    return `${action}: origin header is missing`;
+  }
+  if (apiError?.message) {
+    return `${action}: ${apiError.message}`;
+  }
+  return `${action} ${response.status}`;
+}
+
+function isInvalidPairingTokenError(error) {
+  return String(error?.message || error).toLowerCase().includes("invalid pairing token");
+}
+
+function stableSortJson(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stableSortJson(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort((left, right) => left.localeCompare(right))
+      .reduce((accumulator, key) => {
+        accumulator[key] = stableSortJson(value[key]);
+        return accumulator;
+      }, {});
+  }
+  return value;
+}
+
+function stableStringify(value) {
+  return JSON.stringify(stableSortJson(value));
+}
+
+function camelCaseKey(value) {
+  const text = String(value || "");
+  return text ? `${text.slice(0, 1).toLowerCase()}${text.slice(1)}` : "";
+}
+
+function readNamedValue(source, name) {
+  const object = ensureObject(source);
+  if (Object.prototype.hasOwnProperty.call(object, name)) {
+    return object[name];
+  }
+  const camelName = camelCaseKey(name);
+  if (camelName && Object.prototype.hasOwnProperty.call(object, camelName)) {
+    return object[camelName];
+  }
+  return undefined;
+}
+
+function clearNamedValue(target, name) {
+  if (!target || typeof target !== "object") {
+    return;
+  }
+  delete target[name];
+  const camelName = camelCaseKey(name);
+  if (camelName) {
+    delete target[camelName];
+  }
+}
+
+function pickFirstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function caseFoldKeys(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => caseFoldKeys(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value).reduce((accumulator, key) => {
+      accumulator[String(key).toLowerCase()] = caseFoldKeys(value[key]);
+      return accumulator;
+    }, {});
+  }
+  return value;
+}
+
+function buildCanonicalBlock(source, keys) {
+  const block = {};
+  for (const key of keys) {
+    const value = readNamedValue(source, key);
+    if (value !== undefined) {
+      block[key] = cloneJson(value);
+    }
+  }
+  return block;
+}
+
+function normalizeFlatSettings(source) {
+  return {
+    AgentVersion: pickFirstDefined(
+      readNamedValue(source, "AgentVersion"),
+      readNamedValue(source, "UtilityVersion"),
+    ) || "",
+    ConfigVersion: readNamedValue(source, "ConfigVersion") || "",
+    ConfigSchemaVersion: readNamedValue(source, "ConfigSchemaVersion") || 0,
+    EnvironmentName: readNamedValue(source, "EnvironmentName") || "",
+    ListenUrl: readNamedValue(source, "ListenUrl") || "",
+    ManifestUrl: readNamedValue(source, "ManifestUrl") || "",
+    UiUrl: readNamedValue(source, "UiUrl") || "",
+    Profiles: cloneJson(toArray(readNamedValue(source, "Profiles"))),
+    ComAdapters: cloneJson(toArray(readNamedValue(source, "ComAdapters"))),
+    SystemAdapter: buildCanonicalBlock(readNamedValue(source, "SystemAdapter"), [
+      "RootAliases",
+      "AllowedRoots",
+      "Members",
+      "AllowedTypeNames",
+      "DeniedTypeNames",
+      "AllowedNamespaces",
+      "DeniedNamespaces",
+      "DeniedInvocations",
+      "AllowedProcessExecutables",
+      "DeniedProcessExecutables",
+      "AllowedUrlPrefixes",
+      "DeniedUrlPrefixes",
+      "AllowedRegistryHives",
+      "DeniedRegistryHives",
+    ]),
+    Security: buildCanonicalBlock(readNamedValue(source, "Security"), [
+      "LoopbackOnly",
+      "PairingToken",
+      "AllowedOrigins",
+    ]),
+  };
+}
+
+function normalizeLegacySettings(source) {
+  const versions = readNamedValue(source, "Versions");
+  const runtime = readNamedValue(source, "Runtime");
+  const server = readNamedValue(source, "Server");
+  const ui = readNamedValue(source, "Ui");
+  const catalog = readNamedValue(source, "Catalog");
+  const adapters = readNamedValue(source, "Adapters");
+
+  return {
+    AgentVersion: readNamedValue(versions, "UtilityVersion") || "",
+    ConfigVersion: readNamedValue(versions, "ConfigVersion") || "",
+    ConfigSchemaVersion: readNamedValue(versions, "ConfigSchemaVersion") || 0,
+    EnvironmentName: readNamedValue(runtime, "EnvironmentName") || "",
+    ListenUrl: readNamedValue(server, "ListenUrl") || "",
+    UiUrl: readNamedValue(ui, "Url") || "",
+    Profiles: cloneJson(toArray(readNamedValue(catalog, "Profiles"))),
+    ComAdapters: cloneJson(toArray(readNamedValue(adapters, "Com"))),
+    SystemAdapter: buildCanonicalBlock(readNamedValue(adapters, "System"), [
+      "RootAliases",
+      "AllowedRoots",
+      "Members",
+      "AllowedTypeNames",
+      "DeniedTypeNames",
+      "AllowedNamespaces",
+      "DeniedNamespaces",
+      "DeniedInvocations",
+      "AllowedProcessExecutables",
+      "DeniedProcessExecutables",
+      "AllowedUrlPrefixes",
+      "DeniedUrlPrefixes",
+      "AllowedRegistryHives",
+      "DeniedRegistryHives",
+    ]),
+    Security: buildCanonicalBlock(readNamedValue(source, "Security"), [
+      "LoopbackOnly",
+      "PairingToken",
+      "AllowedOrigins",
+    ]),
+  };
+}
+
+function normalizeRuntimeSettings(settings) {
+  const rawSettings = cloneJson(ensureObject(settings));
+  const schemaVariant = readNamedValue(rawSettings, "Versions") || readNamedValue(rawSettings, "Catalog") || readNamedValue(rawSettings, "Adapters")
+    ? "legacy-nested"
+    : "flat";
+
+  return {
+    schemaVariant,
+    rawSettings,
+    normalizedSettings: schemaVariant === "legacy-nested"
+      ? normalizeLegacySettings(rawSettings)
+      : normalizeFlatSettings(rawSettings),
+  };
+}
+
+function serializeFlatRuntimeSettings(rawSettings, desiredSettings) {
+  const serialized = cloneJson(ensureObject(rawSettings));
+  const systemAdapter = cloneJson(ensureObject(desiredSettings.SystemAdapter));
+  const security = cloneJson(ensureObject(desiredSettings.Security));
+
+  clearNamedValue(serialized, "ConfigVersion");
+  serialized.ConfigVersion = desiredSettings.ConfigVersion;
+
+  clearNamedValue(serialized, "UiUrl");
+  serialized.UiUrl = desiredSettings.UiUrl;
+
+  clearNamedValue(serialized, "Profiles");
+  serialized.Profiles = cloneJson(toArray(desiredSettings.Profiles));
+
+  clearNamedValue(serialized, "ComAdapters");
+  serialized.ComAdapters = cloneJson(toArray(desiredSettings.ComAdapters));
+
+  clearNamedValue(serialized, "SystemAdapter");
+  serialized.SystemAdapter = systemAdapter;
+
+  clearNamedValue(serialized, "Security");
+  serialized.Security = security;
+
+  return serialized;
+}
+
+function serializeLegacyRuntimeSettings(rawSettings, desiredSettings) {
+  const versions = buildCanonicalBlock(readNamedValue(rawSettings, "Versions"), [
+    "UtilityVersion",
+    "ConfigVersion",
+    "ConfigSchemaVersion",
+  ]);
+  versions.ConfigVersion = desiredSettings.ConfigVersion;
+
+  const metadata = buildCanonicalBlock(readNamedValue(rawSettings, "Metadata"), [
+    "ProductName",
+    "ProductCode",
+    "Author",
+    "Company",
+    "Description",
+    "RepositoryUrl",
+  ]);
+  const runtime = buildCanonicalBlock(readNamedValue(rawSettings, "Runtime"), [
+    "EnvironmentName",
+    "DevMode",
+    "NoBrowser",
+  ]);
+  const server = buildCanonicalBlock(readNamedValue(rawSettings, "Server"), [
+    "ListenUrl",
+  ]);
+  const ui = buildCanonicalBlock(readNamedValue(rawSettings, "Ui"), [
+    "Url",
+    "OpenMode",
+    "SessionWaitSeconds",
+  ]);
+  ui.Url = desiredSettings.UiUrl;
+
+  const lifecycle = buildCanonicalBlock(readNamedValue(rawSettings, "Lifecycle"), [
+    "ShutdownPolicy",
+    "IdleSeconds",
+  ]);
+  const logging = buildCanonicalBlock(readNamedValue(rawSettings, "Logging"), [
+    "Level",
+    "DebugMode",
+    "FilePath",
+  ]);
+  const storage = buildCanonicalBlock(readNamedValue(rawSettings, "Storage"), [
+    "ProfileDirectory",
+    "CacheDirectory",
+    "DiagnosticsDirectory",
+  ]);
+  const catalog = buildCanonicalBlock(readNamedValue(rawSettings, "Catalog"), [
+    "Url",
+    "Manifest",
+  ]);
+  catalog.Profiles = cloneJson(toArray(desiredSettings.Profiles));
+
+  const adapters = {
+    Com: cloneJson(toArray(desiredSettings.ComAdapters)),
+    System: cloneJson(ensureObject(desiredSettings.SystemAdapter)),
+  };
+  const security = {
+    ...buildCanonicalBlock(readNamedValue(rawSettings, "Security"), [
+      "LoopbackOnly",
+      "AllowedOrigins",
+      "PairingToken",
+    ]),
+    ...cloneJson(ensureObject(desiredSettings.Security)),
+  };
+  const session = buildCanonicalBlock(readNamedValue(rawSettings, "Session"), [
+    "HeartbeatIntervalSeconds",
+    "HeartbeatTimeoutSeconds",
+    "PresenceTimeoutSeconds",
+    "SuppressAutoOpenOnPresenceSessions",
+    "SweepIntervalSeconds",
+  ]);
+
+  return {
+    Versions: versions,
+    Metadata: metadata,
+    Runtime: runtime,
+    Server: server,
+    Ui: ui,
+    Lifecycle: lifecycle,
+    Logging: logging,
+    Storage: storage,
+    Catalog: catalog,
+    Adapters: adapters,
+    Security: security,
+    Session: session,
+  };
+}
+
+function serializeRuntimeLoadSettings({ schemaVariant, rawSettings, desiredSettings }) {
+  return schemaVariant === "legacy-nested"
+    ? serializeLegacyRuntimeSettings(rawSettings, desiredSettings)
+    : serializeFlatRuntimeSettings(rawSettings, desiredSettings);
+}
+
+async function sha256Hex(value) {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("crypto.subtle is unavailable");
+  }
+  const encoded = new TextEncoder().encode(String(value || ""));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function buildUiFingerprintSource(runtime = {}) {
+  const navigatorLike = runtime.navigator ?? globalThis.navigator ?? {};
+  const screenLike = runtime.screen ?? globalThis.screen ?? {};
+  const intlLike = runtime.Intl ?? globalThis.Intl;
+  const timezone = runtime.timezone || (() => {
+    try {
+      return intlLike?.DateTimeFormat?.().resolvedOptions?.().timeZone || "";
+    } catch {
+      return "";
+    }
+  })();
+
+  const language = navigatorLike.language || toArray(navigatorLike.languages)[0] || "";
+  const screenSignature = [
+    normalizeNumberPart(screenLike.width),
+    normalizeNumberPart(screenLike.height),
+    normalizeNumberPart(screenLike.colorDepth),
+  ].join("x");
+
+  return [
+    normalizeStringPart(navigatorLike.platform),
+    normalizeStringPart(language),
+    normalizeStringPart(timezone),
+    normalizeNumberPart(navigatorLike.hardwareConcurrency),
+    normalizeNumberPart(navigatorLike.maxTouchPoints),
+    screenSignature,
+  ].join("|");
+}
+
+async function deriveUiPairingToken(runtime = {}) {
+  const source = typeof runtime === "string" ? runtime : buildUiFingerprintSource(runtime);
+  return sha256Hex(`${UI_FINGERPRINT_SALT}|${source}`);
+}
+
+function createTokenCandidates(derivedToken) {
+  return uniqueStrings([derivedToken, ...DEFAULT_PAIRING_TOKENS]);
+}
+
+function findProfile(settings, profileId) {
+  return toArray(settings?.Profiles).find((profile) => String(readNamedValue(profile, "ProfileId") || "").toLowerCase() === profileId.toLowerCase()) || null;
+}
+
+function findComAdapter(settings, adapterName) {
+  return toArray(settings?.ComAdapters).find((adapter) => String(readNamedValue(adapter, "AdapterName") || "").toLowerCase() === adapterName.toLowerCase()) || null;
+}
+
+function mergeComAdapters(existingAdapters, requiredAdapters) {
+  const byName = new Map();
+  for (const adapter of toArray(existingAdapters)) {
+    const clone = cloneJson(adapter);
+    const key = String(readNamedValue(clone, "AdapterName") || "").trim().toLowerCase();
+    if (!key) {
+      continue;
+    }
+    byName.set(key, clone);
+  }
+  for (const adapter of toArray(requiredAdapters)) {
+    const clone = cloneJson(adapter);
+    const key = String(readNamedValue(clone, "AdapterName") || "").trim().toLowerCase();
+    if (!key) {
+      continue;
+    }
+    byName.set(key, clone);
+  }
+  return [...byName.values()];
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 const runtimeDsl = {
@@ -121,67 +626,277 @@ const runtimeDsl = {
     }
     return payload;
   },
-
-  createProcessCommand({ scriptPath, action, workingDirectory, timeoutMilliseconds = 60000 }) {
-    return runtimeDsl.command(
-      "system",
-      "command",
-      [
-        runtimeDsl.step("call", "Run", {
-          args: [
-            runtimeDsl.literal("powershell.exe", "string"),
-            runtimeDsl.literal(buildPowerShellArguments(scriptPath, action), "string"),
-            runtimeDsl.literal(workingDirectory, "path"),
-            runtimeDsl.literal(timeoutMilliseconds, "int"),
-            runtimeDsl.arg("stdin", "string"),
-            runtimeDsl.literal(null),
-          ],
-        }),
-      ],
-      {
-        defaultArguments: {
-          stdin: null,
-        },
-      },
-    );
-  },
 };
 
-function unwrapEnvelope(payload) {
-  if (payload && typeof payload === "object" && Object.prototype.hasOwnProperty.call(payload, "payload")) {
-    return payload.payload;
-  }
-  return payload;
+function createShellContribution() {
+  return {
+    commands: {
+      "system.file.exists": runtimeDsl.command(
+        "system",
+        "type:System.IO.File",
+        [
+          runtimeDsl.step("call", "Exists", {
+            args: [runtimeDsl.arg("path", "path")],
+          }),
+        ],
+      ),
+      "system.file.read-bytes": runtimeDsl.command(
+        "system",
+        "type:System.IO.File",
+        [
+          runtimeDsl.step("call", "ReadAllBytes", {
+            args: [runtimeDsl.arg("path", "path")],
+          }),
+        ],
+      ),
+      "system.file.write-text": runtimeDsl.command(
+        "system",
+        "type:System.IO.File",
+        [
+          runtimeDsl.step("call", "WriteAllText", {
+            args: [
+              runtimeDsl.arg("path", "path"),
+              runtimeDsl.arg("content", "string"),
+            ],
+          }),
+        ],
+      ),
+      "system.file.delete": runtimeDsl.command(
+        "system",
+        "type:System.IO.File",
+        [
+          runtimeDsl.step("call", "Delete", {
+            args: [runtimeDsl.arg("path", "path")],
+          }),
+        ],
+      ),
+      "system.directory.ensure": runtimeDsl.command(
+        "system",
+        "type:System.IO.Directory",
+        [
+          runtimeDsl.step("call", "CreateDirectory", {
+            args: [runtimeDsl.arg("path", "path")],
+          }),
+        ],
+      ),
+      "system.path.get-temp-path": runtimeDsl.command(
+        "system",
+        "type:System.IO.Path",
+        [
+          runtimeDsl.step("call", "GetTempPath", {
+            args: [],
+          }),
+        ],
+      ),
+      "system.command.run": runtimeDsl.command(
+        "system",
+        "command",
+        [
+          runtimeDsl.step("call", "Run", {
+            args: [
+              runtimeDsl.arg("fileName", "string"),
+              runtimeDsl.arg("arguments", "string"),
+              runtimeDsl.arg("workingDirectory", "path"),
+              runtimeDsl.arg("timeoutMilliseconds", "int"),
+              runtimeDsl.arg("standardInput", "string"),
+              runtimeDsl.arg("environment", "json"),
+            ],
+          }),
+        ],
+        {
+          defaultArguments: {
+            standardInput: null,
+            environment: null,
+          },
+        },
+      ),
+    },
+    allowedTypes: [
+      "System.IO.Directory",
+      "System.IO.File",
+      "System.IO.Path",
+    ],
+    comAdapters: [],
+  };
 }
 
-function extractApiError(payload) {
-  if (!payload || typeof payload !== "object") {
-    return null;
+function buildRuntimeProfileCommands(commands) {
+  const result = {};
+  for (const [commandId, definition] of Object.entries(ensureObject(commands))) {
+    result[commandId] = {
+      CommandId: commandId,
+      ...cloneJson(definition),
+    };
   }
-  if (payload.error && typeof payload.error === "object") {
-    return payload.error;
-  }
-  if (payload.payload && typeof payload.payload === "object" && payload.payload.error) {
-    return payload.payload.error;
-  }
-  return null;
+  return result;
 }
 
-function formatHttpError(action, response, payload) {
-  const apiError = extractApiError(payload);
-  if (apiError?.code === "pairing_token_invalid") {
-    return `${action}: invalid pairing token`;
+async function buildDesiredRuntimeSettings({
+  effectiveSettings,
+  pageOrigin,
+  pageUrl,
+  sessionToken,
+  contribution,
+}) {
+  const base = cloneJson(ensureObject(effectiveSettings));
+  const security = ensureObject(base.Security);
+  const systemAdapter = ensureObject(base.SystemAdapter);
+  const commands = buildRuntimeProfileCommands(contribution.commands);
+  const profiles = toArray(base.Profiles)
+    .filter((profile) => String(readNamedValue(profile, "ProfileId") || "").toLowerCase() !== EXECUTOR_PROFILE_ID.toLowerCase());
+  const allowedOrigins = uniqueStrings([
+    ...toArray(security.AllowedOrigins),
+    pageOrigin,
+  ]).sort((left, right) => left.localeCompare(right));
+  const allowedTypes = uniqueStrings([
+    ...toArray(systemAdapter.AllowedTypeNames),
+    ...toArray(contribution.allowedTypes),
+  ]).sort((left, right) => left.localeCompare(right));
+  const comAdapters = mergeComAdapters(base.ComAdapters, contribution.comAdapters);
+
+  const checksum = await sha256Hex(stableStringify({
+    commands,
+    comAdapters,
+    profileId: EXECUTOR_PROFILE_ID,
+    uiUrl: pageUrl,
+    allowedOrigins,
+    allowedTypes,
+  }));
+
+  const desiredProfile = {
+    ProfileId: EXECUTOR_PROFILE_ID,
+    ConfigSchemaVersion: 1,
+    Description: RUNTIME_PROFILE_DESCRIPTION,
+    Checksum: checksum,
+    Commands: commands,
+  };
+
+  return {
+    ...base,
+    ConfigVersion: `kompas-pages-overlay-${checksum.slice(0, 12)}`,
+    UiUrl: pageUrl,
+    Profiles: [...profiles, desiredProfile],
+    ComAdapters: comAdapters,
+    SystemAdapter: {
+      ...cloneJson(systemAdapter),
+      AllowedTypeNames: allowedTypes,
+    },
+    Security: {
+      ...cloneJson(security),
+      AllowedOrigins: allowedOrigins,
+      PairingToken: sessionToken,
+    },
+  };
+}
+
+function assessRuntimeOverlay({
+  effectiveSettings,
+  desiredSettings,
+  contribution,
+}) {
+  const reasons = [];
+  const effectiveOrigins = normalizeArrayForCompare(ensureObject(effectiveSettings?.Security).AllowedOrigins);
+  const desiredOrigins = normalizeArrayForCompare(ensureObject(desiredSettings?.Security).AllowedOrigins);
+  if (stableStringify(effectiveOrigins) !== stableStringify(desiredOrigins)) {
+    reasons.push("allowed-origins");
   }
-  if (apiError?.code === "origin_not_allowed") {
-    return `${action}: origin is not allowed`;
+
+  if (String(effectiveSettings?.UiUrl || "") !== String(desiredSettings?.UiUrl || "")) {
+    reasons.push("ui-url");
   }
-  if (apiError?.code === "origin_missing") {
-    return `${action}: origin header is missing`;
+
+  const effectiveAllowedTypes = normalizeArrayForCompare(ensureObject(effectiveSettings?.SystemAdapter).AllowedTypeNames);
+  const requiredAllowedTypes = normalizeArrayForCompare(contribution.allowedTypes);
+  if (!requiredAllowedTypes.every((typeName) => effectiveAllowedTypes.includes(typeName))) {
+    reasons.push("system-types");
   }
-  if (apiError?.message) {
-    return `${action}: ${apiError.message}`;
+
+  for (const adapter of toArray(contribution.comAdapters)) {
+    const effectiveAdapter = findComAdapter(effectiveSettings, adapter.AdapterName);
+    if (!effectiveAdapter) {
+      reasons.push(`adapter:${adapter.AdapterName}`);
+      continue;
+    }
+    if (stableStringify(caseFoldKeys(effectiveAdapter)) !== stableStringify(caseFoldKeys(adapter))) {
+      reasons.push(`adapter:${adapter.AdapterName}`);
+    }
   }
-  return `${action} ${response.status}`;
+
+  const effectiveProfile = findProfile(effectiveSettings, EXECUTOR_PROFILE_ID);
+  const desiredProfile = findProfile(desiredSettings, EXECUTOR_PROFILE_ID);
+  if (!effectiveProfile) {
+    reasons.push("profile-missing");
+  } else if (!desiredProfile || String(readNamedValue(effectiveProfile, "Checksum") || "") !== String(readNamedValue(desiredProfile, "Checksum") || "")) {
+    reasons.push("profile-checksum");
+  }
+
+  return {
+    reloadRequired: reasons.length > 0,
+    reasons,
+  };
+}
+
+async function ensureRuntimeOverlay({
+  bridge,
+  pageOrigin,
+  pageUrl,
+  sessionToken,
+  contribution,
+}) {
+  const effective = await bridge.fetchJson("/config/effective");
+  if (!effective.response.ok) {
+    throw new Error(formatHttpError("/config/effective", effective.response, effective.payload));
+  }
+
+  const effectiveResponse = unwrapEnvelope(effective.payload);
+  const effectiveConfig = normalizeRuntimeSettings(effectiveResponse?.settings || effectiveResponse?.Settings || effectiveResponse);
+  const effectiveSettings = effectiveConfig.normalizedSettings;
+  const desiredSettings = await buildDesiredRuntimeSettings({
+    effectiveSettings,
+    pageOrigin,
+    pageUrl,
+    sessionToken,
+    contribution,
+  });
+  const assessment = assessRuntimeOverlay({
+    effectiveSettings,
+    desiredSettings,
+    contribution,
+  });
+
+  if (!assessment.reloadRequired) {
+    return {
+      applied: false,
+      assessment,
+      effectiveSettings,
+      desiredSettings,
+      runtimeVersion: desiredSettings.ConfigVersion,
+    };
+  }
+
+  const applied = await bridge.fetchJson("/config/load", {
+    method: "POST",
+    body: JSON.stringify({
+      settings: serializeRuntimeLoadSettings({
+        schemaVariant: effectiveConfig.schemaVariant,
+        rawSettings: effectiveConfig.rawSettings,
+        desiredSettings,
+      }),
+      persist: false,
+    }),
+  });
+  const update = unwrapEnvelope(applied.payload);
+  if (!applied.response.ok || !update?.applied) {
+    throw new Error(update?.message || formatHttpError("/config/load", applied.response, applied.payload));
+  }
+
+  return {
+    applied: true,
+    assessment,
+    effectiveSettings,
+    desiredSettings,
+    runtimeVersion: update?.version?.configVersion || desiredSettings.ConfigVersion,
+  };
 }
 
 class WebBridgeClient {
@@ -195,6 +910,9 @@ class WebBridgeClient {
     this.socket = null;
     this.heartbeatTimer = null;
     this.helloReceived = false;
+    this.manualClose = false;
+    this.closePromise = Promise.resolve(null);
+    this.closeResolver = null;
   }
 
   headers(extra = {}) {
@@ -252,6 +970,7 @@ class WebBridgeClient {
   }
 
   async disconnect(reason = "manual-close") {
+    this.manualClose = true;
     this.stopHeartbeat();
 
     if (this.sessionId) {
@@ -274,8 +993,14 @@ class WebBridgeClient {
       } catch {
         // Ignore close failures.
       }
-      this.socket = null;
+    } else if (this.closeResolver) {
+      this.closeResolver(null);
+      this.closeResolver = null;
     }
+  }
+
+  waitForClose() {
+    return this.closePromise;
   }
 
   stopHeartbeat() {
@@ -323,10 +1048,45 @@ class WebBridgeClient {
     return execution;
   }
 
+  async executeBatch(profileId, commands, options = {}) {
+    const requestCommands = toArray(commands).map((command) => ({
+      profileId,
+      commandId: command.commandId,
+      arguments: ensureObject(command.arguments),
+      reportVerbosity: command.reportVerbosity || options.reportVerbosity || "Compact",
+      sharedContextId: command.sharedContextId || null,
+      timeoutMilliseconds: command.timeoutMilliseconds || null,
+    }));
+    const { response, payload } = await this.fetchJson("/commands/execute-batch", {
+      method: "POST",
+      body: JSON.stringify({
+        commands: requestCommands,
+        sharedContextId: options.sharedContextId || null,
+        reportVerbosity: options.reportVerbosity || "Compact",
+        stopOnError: options.stopOnError !== false,
+      }),
+    });
+    const batch = unwrapEnvelope(payload);
+    if (!response.ok || !batch?.success) {
+      const firstError = toArray(batch?.results).find((result) => !result?.success)?.error;
+      const errorMessage = firstError?.message
+        || firstError?.code
+        || extractApiError(payload)?.message
+        || extractApiError(payload)?.code
+        || response.status;
+      throw new Error(`execute-batch failed: ${errorMessage}`);
+    }
+    return batch;
+  }
+
   async openSocket(wsUrl) {
     this.stopHeartbeat();
     this.helloReceived = false;
+    this.manualClose = false;
     this.socket = new WebSocket(wsUrl);
+    this.closePromise = new Promise((resolve) => {
+      this.closeResolver = resolve;
+    });
 
     this.socket.addEventListener("message", (event) => {
       try {
@@ -336,6 +1096,16 @@ class WebBridgeClient {
         }
       } catch {
         // Ignore malformed telemetry frames.
+      }
+    });
+
+    this.socket.addEventListener("close", (event) => {
+      this.stopHeartbeat();
+      this.socket = null;
+      if (this.closeResolver) {
+        const resolve = this.closeResolver;
+        this.closeResolver = null;
+        resolve(this.manualClose ? null : new Error(`ws closed ${event.code} ${event.reason || "no-reason"}`));
       }
     });
 
@@ -390,58 +1160,6 @@ class WebBridgeClient {
   }
 }
 
-function parseQuerySettings() {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    utilityUrl: params.get("utilityUrl") || "",
-    pairingToken: params.get("pairingToken") || "",
-    workspaceRoot: params.get("workspaceRoot") || "",
-    autoConnect: params.get("autoConnect") === "1",
-  };
-}
-
-function restoreStoredSettings() {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return {};
-  }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-function createShellContribution() {
-  return {
-    commands: {
-      "system.file.exists": runtimeDsl.command(
-        "system",
-        "type:System.IO.File",
-        [
-          runtimeDsl.step("call", "Exists", {
-            args: [runtimeDsl.arg("path", "path")],
-          }),
-        ],
-      ),
-      "system.file.read-bytes": runtimeDsl.command(
-        "system",
-        "type:System.IO.File",
-        [
-          runtimeDsl.step("call", "ReadAllBytes", {
-            args: [runtimeDsl.arg("path", "path")],
-          }),
-        ],
-      ),
-    },
-    allowedTypes: [
-      "System.IO.File",
-      "System.IO.FileInfo",
-    ],
-    allowedProcesses: [],
-  };
-}
-
 function createExecutorShell({ modules }) {
   if (!Array.isArray(modules) || modules.length === 0) {
     throw new Error("Executor shell requires at least one module.");
@@ -452,12 +1170,6 @@ function createExecutorShell({ modules }) {
     bridgeBadge: document.getElementById("bridge-badge"),
     runtimeBadge: document.getElementById("runtime-badge"),
     moduleBadge: document.getElementById("module-badge"),
-    utilityUrl: document.getElementById("utility-url"),
-    pairingToken: document.getElementById("pairing-token"),
-    workspaceRoot: document.getElementById("workspace-root"),
-    connectButton: document.getElementById("connect-button"),
-    disconnectButton: document.getElementById("disconnect-button"),
-    reloadRuntimeButton: document.getElementById("reload-runtime-button"),
     bridgeMeta: document.getElementById("bridge-meta"),
     runtimeMeta: document.getElementById("runtime-meta"),
     moduleMeta: document.getElementById("module-meta"),
@@ -473,6 +1185,7 @@ function createExecutorShell({ modules }) {
   const hostsById = new Map();
   const handlesById = new Map();
   const displayById = new Map();
+  const contextById = new Map();
   const events = new EventTarget();
 
   const state = {
@@ -480,7 +1193,9 @@ function createExecutorShell({ modules }) {
     runtimeReady: false,
     runtimeVersion: "",
     activeModuleId: orderedModules[0].id,
-    connectPromise: null,
+    sessionToken: "",
+    supervisorPromise: null,
+    stopRequested: false,
   };
 
   function setBadge(element, label, active) {
@@ -502,26 +1217,6 @@ function createExecutorShell({ modules }) {
     events.dispatchEvent(new CustomEvent(name, { detail }));
   }
 
-  function persistSettings() {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      utilityUrl: ui.utilityUrl.value.trim(),
-      workspaceRoot: ui.workspaceRoot.value.trim(),
-    }));
-  }
-
-  function loadSettings() {
-    const query = parseQuerySettings();
-    const stored = restoreStoredSettings();
-    ui.utilityUrl.value = query.utilityUrl || stored.utilityUrl || DEFAULT_EXECUTOR_SETTINGS.utilityUrl;
-    ui.pairingToken.value = query.pairingToken || DEFAULT_EXECUTOR_SETTINGS.pairingToken;
-    ui.workspaceRoot.value = query.workspaceRoot || stored.workspaceRoot || DEFAULT_EXECUTOR_SETTINGS.workspaceRoot;
-    return query.autoConnect;
-  }
-
-  function getEffectivePairingToken() {
-    return ui.pairingToken.value.trim() || DEFAULT_EXECUTOR_SETTINGS.pairingToken;
-  }
-
   function getBridgeState() {
     return {
       connected: Boolean(state.bridge),
@@ -529,31 +1224,9 @@ function createExecutorShell({ modules }) {
       runtimeReady: state.runtimeReady,
       runtimeVersion: state.runtimeVersion,
       sessionId: state.bridge?.sessionId || "",
+      pairingToken: state.sessionToken,
+      utilityUrl: DEFAULT_EXECUTOR_SETTINGS.utilityUrl,
     };
-  }
-
-  function normalizeWindowsPath(value) {
-    return String(value || "")
-      .replace(/\//g, "\\")
-      .replace(/\\{2,}/g, "\\");
-  }
-
-  function resolveWorkspacePath(...parts) {
-    const base = normalizeWindowsPath(ui.workspaceRoot.value.trim());
-    const cleaned = [base, ...parts]
-      .map((part) => normalizeWindowsPath(part))
-      .filter(Boolean);
-    if (cleaned.length === 0) {
-      return "";
-    }
-    return cleaned
-      .map((part, index) => {
-        if (index === 0) {
-          return part.replace(/[\\]+$/, "");
-        }
-        return part.replace(/^[\\]+/, "").replace(/[\\]+$/, "");
-      })
-      .join("\\");
   }
 
   function downloadBytes(bytes, fileName, mimeType = "application/octet-stream") {
@@ -602,6 +1275,16 @@ function createExecutorShell({ modules }) {
     return state.bridge.execute(EXECUTOR_PROFILE_ID, commandId, args, timeoutMilliseconds);
   }
 
+  async function executeBatchCommand(commands, options = {}) {
+    if (!state.bridge) {
+      throw new Error("Bridge is not connected.");
+    }
+    if (!state.runtimeReady) {
+      throw new Error("Runtime is not loaded.");
+    }
+    return state.bridge.executeBatch(EXECUTOR_PROFILE_ID, commands, options);
+  }
+
   async function fileExists(path) {
     const execution = await executeCommand("system.file.exists", { path }, 15000);
     return Boolean(execution.result);
@@ -613,13 +1296,45 @@ function createExecutorShell({ modules }) {
     return new Uint8Array(payload);
   }
 
+  async function deleteFile(path) {
+    await executeCommand("system.file.delete", { path }, 15000);
+  }
+
+  async function writeFileText(path, content) {
+    await executeCommand("system.file.write-text", { path, content: String(content || "") }, 30000);
+  }
+
+  async function ensureDirectory(path) {
+    await executeCommand("system.directory.ensure", { path }, 15000);
+  }
+
+  async function getTempPath() {
+    const execution = await executeCommand("system.path.get-temp-path", {}, 15000);
+    return String(execution.result || "");
+  }
+
+  async function runCommand(fileName, argumentsText = "", workingDirectory = "", timeoutMilliseconds = 60000, standardInput = null, environment = null) {
+    const execution = await executeCommand("system.command.run", {
+      fileName,
+      arguments: argumentsText,
+      workingDirectory,
+      timeoutMilliseconds,
+      standardInput,
+      environment,
+    }, Math.max(timeoutMilliseconds + 5000, 15000));
+    return ensureObject(execution.result);
+  }
+
   function createModuleContext(module) {
-    const moduleLogger = makeLogger(module.id);
-    return {
+    if (contextById.has(module.id)) {
+      return contextById.get(module.id);
+    }
+
+    const context = {
       id: module.id,
       events,
       dsl: runtimeDsl,
-      logger: moduleLogger,
+      logger: makeLogger(module.id),
       storage: {
         get(key, fallback = null) {
           const raw = window.localStorage.getItem(`${module.id}:${key}`);
@@ -637,14 +1352,18 @@ function createExecutorShell({ modules }) {
         },
       },
       getBridgeState,
-      getUtilityUrl: () => ui.utilityUrl.value.trim(),
-      getPairingToken: () => getEffectivePairingToken(),
-      getWorkspaceRoot: () => ui.workspaceRoot.value.trim(),
-      resolveWorkspacePath,
+      getUtilityUrl: () => DEFAULT_EXECUTOR_SETTINGS.utilityUrl,
+      getPairingToken: () => state.sessionToken,
       getProfileId: () => EXECUTOR_PROFILE_ID,
       executeCommand,
+      executeBatchCommand,
       fileExists,
       readFileBytes,
+      deleteFile,
+      writeFileText,
+      ensureDirectory,
+      getTempPath,
+      runCommand,
       downloadBytes,
       setModuleBadge(label, active = false) {
         setModuleDisplay(module.id, { badgeLabel: label, badgeActive: active });
@@ -656,6 +1375,9 @@ function createExecutorShell({ modules }) {
         return loadRuntime();
       },
     };
+
+    contextById.set(module.id, context);
+    return context;
   }
 
   function applyModuleHeader(module) {
@@ -756,7 +1478,7 @@ function createExecutorShell({ modules }) {
     const combined = {
       commands: {},
       allowedTypes: [],
-      allowedProcesses: [],
+      comAdapters: [],
     };
 
     const contributions = [createShellContribution()];
@@ -769,127 +1491,47 @@ function createExecutorShell({ modules }) {
     for (const contribution of contributions) {
       const commands = ensureObject(contribution.commands);
       for (const [commandId, definition] of Object.entries(commands)) {
-        combined.commands[commandId] = {
-          CommandId: commandId,
-          ...cloneJson(definition),
-        };
+        combined.commands[commandId] = cloneJson(definition);
       }
       combined.allowedTypes.push(...toArray(contribution.allowedTypes));
-      combined.allowedProcesses.push(...toArray(contribution.allowedProcesses));
+      combined.comAdapters.push(...toArray(contribution.comAdapters));
     }
 
     combined.allowedTypes = uniqueStrings(combined.allowedTypes);
-    combined.allowedProcesses = uniqueStrings(combined.allowedProcesses);
+    combined.comAdapters = mergeComAdapters([], combined.comAdapters);
     return combined;
   }
 
-  function buildRuntimeSettings(effectiveSettings) {
-    const base = cloneJson(ensureObject(effectiveSettings));
-    const versions = ensureObject(getCaseInsensitive(base, "Versions"));
-    const metadata = ensureObject(getCaseInsensitive(base, "Metadata"));
-    const runtime = ensureObject(getCaseInsensitive(base, "Runtime"));
-    const server = ensureObject(getCaseInsensitive(base, "Server"));
-    const lifecycle = ensureObject(getCaseInsensitive(base, "Lifecycle"));
-    const logging = ensureObject(getCaseInsensitive(base, "Logging"));
-    const storage = ensureObject(getCaseInsensitive(base, "Storage"));
-    const catalog = ensureObject(getCaseInsensitive(base, "Catalog"));
-    const adapters = ensureObject(getCaseInsensitive(base, "Adapters"));
-    const security = ensureObject(getCaseInsensitive(base, "Security"));
-    const session = ensureObject(getCaseInsensitive(base, "Session"));
-    const baseSystem = ensureObject(getCaseInsensitive(adapters, "System"));
-    const baseCom = toArray(getCaseInsensitive(adapters, "Com"));
+  function setBridgeWaiting(message) {
+    setBadge(ui.bridgeBadge, "bridge wait", false);
+    setBadge(ui.runtimeBadge, "runtime idle", false);
+    ui.bridgeMeta.textContent = message;
+    ui.runtimeMeta.textContent = "Runtime overlay ещё не активен.";
+    state.runtimeReady = false;
+    state.runtimeVersion = "";
+  }
 
-    const contribution = collectRuntimeContribution();
-    const allowedOrigins = uniqueStrings([
-      ...toArray(getCaseInsensitive(security, "AllowedOrigins")),
-      window.location.origin,
-    ]);
-    const allowedTypes = uniqueStrings([
-      ...toArray(getCaseInsensitive(baseSystem, "AllowedTypeNames")),
-      ...contribution.allowedTypes,
-    ]);
-    const allowedProcesses = uniqueStrings([
-      ...toArray(getCaseInsensitive(baseSystem, "AllowedProcessExecutables")),
-      ...contribution.allowedProcesses,
-    ]);
+  function setBridgeOnline(registration) {
+    setBadge(ui.bridgeBadge, "bridge online", true);
+    ui.bridgeMeta.textContent = `session=${registration.sessionId} | heartbeat=${registration.heartbeatIntervalSeconds}s`;
+  }
 
-    return {
-      Versions: {
-        UtilityVersion: getCaseInsensitive(versions, "UtilityVersion") || "1.0.0",
-        ConfigVersion: `kompas-pages-executor-${Date.now()}`,
-        ConfigSchemaVersion: 2,
-      },
-      Metadata: {
-        ProductName: getCaseInsensitive(metadata, "ProductName") || "KOMPAS Pages Executor",
-        ProductCode: getCaseInsensitive(metadata, "ProductCode") || "kompas3d-utility.pages.executor",
-        Author: getCaseInsensitive(metadata, "Author") || "Codex",
-        Company: getCaseInsensitive(metadata, "Company") || null,
-        Description: getCaseInsensitive(metadata, "Description")
-          || "Static Pages UI Executor for KOMPAS utilities via WebBridge.Utility.",
-        RepositoryUrl: getCaseInsensitive(metadata, "RepositoryUrl") || null,
-      },
-      Runtime: {
-        EnvironmentName: getCaseInsensitive(runtime, "EnvironmentName") || "PagesExecutor",
-        DevMode: Boolean(getCaseInsensitive(runtime, "DevMode")),
-        NoBrowser: true,
-      },
-      Server: {
-        ListenUrl: getCaseInsensitive(server, "ListenUrl") || ui.utilityUrl.value.trim(),
-      },
-      Ui: {
-        Url: basePageUrl(),
-        OpenMode: "Never",
-        SessionWaitSeconds: Number(getCaseInsensitive(getCaseInsensitive(base, "Ui"), "SessionWaitSeconds") || 5),
-      },
-      Lifecycle: {
-        ShutdownPolicy: getCaseInsensitive(lifecycle, "ShutdownPolicy") || "WhenIdle",
-        IdleSeconds: Number(getCaseInsensitive(lifecycle, "IdleSeconds") || 180),
-      },
-      Logging: {
-        Level: getCaseInsensitive(logging, "Level") || "Information",
-        DebugMode: Boolean(getCaseInsensitive(logging, "DebugMode")),
-        FilePath: getCaseInsensitive(logging, "FilePath") || null,
-      },
-      Storage: {
-        ProfileDirectory: getCaseInsensitive(storage, "ProfileDirectory") || null,
-        CacheDirectory: getCaseInsensitive(storage, "CacheDirectory") || null,
-        DiagnosticsDirectory: getCaseInsensitive(storage, "DiagnosticsDirectory") || null,
-      },
-      Catalog: {
-        Url: getCaseInsensitive(catalog, "Url") || null,
-        Manifest: getCaseInsensitive(catalog, "Manifest") || null,
-        Profiles: [
-          {
-            ProfileId: EXECUTOR_PROFILE_ID,
-            ConfigSchemaVersion: 1,
-            Description: "Browser-loaded runtime profile for tabbed KOMPAS Pages executor.",
-            Checksum: `kompas-pages-executor-${Date.now()}`,
-            Commands: contribution.commands,
-          },
-        ],
-      },
-      Adapters: {
-        Com: cloneJson(baseCom),
-        System: {
-          ...cloneJson(baseSystem),
-          AllowedTypeNames: allowedTypes,
-          AllowedProcessExecutables: allowedProcesses,
-        },
-      },
-      Security: {
-        LoopbackOnly: getCaseInsensitive(security, "LoopbackOnly") !== false,
-        PairingToken: ui.pairingToken.value.trim(),
-        AllowedOrigins: allowedOrigins,
-      },
-      Session: {
-        HeartbeatIntervalSeconds: Number(getCaseInsensitive(session, "HeartbeatIntervalSeconds") || 10),
-        HeartbeatTimeoutSeconds: Number(getCaseInsensitive(session, "HeartbeatTimeoutSeconds") || 30),
-        PresenceTimeoutSeconds: Number(getCaseInsensitive(session, "PresenceTimeoutSeconds") || 60),
-        SuppressAutoOpenOnPresenceSessions:
-          getCaseInsensitive(session, "SuppressAutoOpenOnPresenceSessions") !== false,
-        SweepIntervalSeconds: Number(getCaseInsensitive(session, "SweepIntervalSeconds") || 2),
-      },
-    };
+  function setRuntimeReady(runtime) {
+    state.runtimeReady = true;
+    state.runtimeVersion = runtime.runtimeVersion;
+    setBadge(ui.runtimeBadge, "runtime ready", true);
+    ui.runtimeMeta.textContent = `${runtime.runtimeVersion} | profile=${EXECUTOR_PROFILE_ID}${runtime.applied ? " | overlay synced" : " | overlay ok"}`;
+  }
+
+  function resetBridgeState(message) {
+    state.bridge = null;
+    state.runtimeReady = false;
+    state.runtimeVersion = "";
+    setBadge(ui.bridgeBadge, "bridge retry", false);
+    setBadge(ui.runtimeBadge, "runtime idle", false);
+    ui.bridgeMeta.textContent = message;
+    ui.runtimeMeta.textContent = "Runtime overlay ещё не активен.";
+    emit("bridge-disconnected", { message });
   }
 
   async function loadRuntime() {
@@ -897,168 +1539,120 @@ function createExecutorShell({ modules }) {
       throw new Error("Bridge is not connected.");
     }
 
-    setBadge(ui.runtimeBadge, "runtime load", false);
-    ui.runtimeMeta.textContent = "Чтение effective config и загрузка runtime profile.";
-
-    const effective = await state.bridge.fetchJson("/config/effective");
-    if (!effective.response.ok) {
-      throw new Error(formatHttpError("/config/effective", effective.response, effective.payload));
-    }
-
-    const effectiveResponse = unwrapEnvelope(effective.payload);
-    const effectiveSettings = effectiveResponse?.settings || effectiveResponse?.Settings || {};
-    const settings = buildRuntimeSettings(effectiveSettings);
-
-    const applied = await state.bridge.fetchJson("/config/load", {
-      method: "POST",
-      body: JSON.stringify({
-        settings,
-        persist: false,
-      }),
+    setBadge(ui.runtimeBadge, "runtime sync", false);
+    ui.runtimeMeta.textContent = "Проверка effective config и runtime overlay.";
+    const contribution = collectRuntimeContribution();
+    const runtime = await ensureRuntimeOverlay({
+      bridge: state.bridge,
+      pageOrigin: window.location.origin,
+      pageUrl: basePageUrl(),
+      sessionToken: state.sessionToken,
+      contribution,
     });
-    const update = unwrapEnvelope(applied.payload);
-    if (!applied.response.ok || !update?.applied) {
-      throw new Error(update?.message || formatHttpError("/config/load", applied.response, applied.payload));
-    }
-
-    state.runtimeReady = true;
-    state.runtimeVersion = update?.version?.configVersion || settings.Versions.ConfigVersion;
-    setBadge(ui.runtimeBadge, "runtime ready", true);
-    ui.runtimeMeta.textContent = `${state.runtimeVersion} | profile=${EXECUTOR_PROFILE_ID}`;
-    appendLog("shell", "runtime-loaded", state.runtimeVersion);
-    emit("runtime-loaded", { settings, response: update });
-    return update;
+    setRuntimeReady(runtime);
+    appendLog("shell", "runtime-ready", runtime.applied ? runtime.assessment.reasons.join(",") : runtime.runtimeVersion);
+    emit("runtime-loaded", runtime);
+    return runtime;
   }
 
-  async function connectBridge() {
-    if (state.connectPromise) {
-      return state.connectPromise;
+  async function resolveTokenCandidates() {
+    let derivedToken = "";
+    try {
+      derivedToken = await deriveUiPairingToken();
+      appendLog("shell", "token-derived", derivedToken.slice(0, 12));
+    } catch (error) {
+      appendLog("shell", "token-derive-skipped", String(error.message || error));
+    }
+    return createTokenCandidates(derivedToken);
+  }
+
+  async function connectOnce() {
+    setBridgeWaiting(`Автоподключение к ${DEFAULT_EXECUTOR_SETTINGS.utilityUrl}`);
+    const tokens = await resolveTokenCandidates();
+    if (tokens.length === 0) {
+      throw new Error("No pairing tokens available.");
     }
 
-    state.connectPromise = (async () => {
-      persistSettings();
-
-      if (state.bridge) {
-        await disconnectBridge();
-      }
-
-      setBadge(ui.bridgeBadge, "bridge connect", false);
-      setBadge(ui.runtimeBadge, "runtime idle", false);
-      ui.bridgeMeta.textContent = "Регистрация UI-сессии...";
-      ui.runtimeMeta.textContent = "Runtime ещё не загружен.";
-      state.runtimeReady = false;
-      ui.connectButton.disabled = true;
-
-      const createBridge = (pairingToken) => new WebBridgeClient({
-        baseUrl: ui.utilityUrl.value.trim(),
-        pairingToken,
+    let lastError = null;
+    for (const token of tokens) {
+      const bridge = new WebBridgeClient({
+        baseUrl: DEFAULT_EXECUTOR_SETTINGS.utilityUrl,
+        pairingToken: token,
         clientName: DEFAULT_EXECUTOR_SETTINGS.clientName,
         uiVersion: DEFAULT_EXECUTOR_SETTINGS.uiVersion,
       });
 
-      const requestedToken = getEffectivePairingToken();
-      const retryTokens = uniqueStrings([
-        requestedToken,
-        DEFAULT_EXECUTOR_SETTINGS.pairingToken,
-        "kompas-pages-local",
-      ]);
-      let bridge = createBridge(retryTokens[0]);
-      let registration;
-
       try {
-        registration = await bridge.connect();
+        const registration = await bridge.connect();
+        state.bridge = bridge;
+        state.sessionToken = token;
+        setBridgeOnline(registration);
+        appendLog("shell", "bridge-connected", `${registration.sessionId} token=${token.slice(0, 12)}`);
+        emit("bridge-connected", { registration, pairingToken: token });
+        const runtime = await loadRuntime();
+        return { bridge, registration, runtime };
       } catch (error) {
-        const message = String(error?.message || error);
-        if (!message.includes("invalid pairing token") || retryTokens.length < 2) {
+        lastError = error;
+        try {
+          await bridge.disconnect("connect-failed");
+        } catch {
+          // Ignore cleanup failures.
+        }
+        if (!isInvalidPairingTokenError(error)) {
           throw error;
         }
-        let connected = false;
+        appendLog("shell", "token-retry", token.slice(0, 12));
+      }
+    }
 
-        for (const retryToken of retryTokens.slice(1)) {
-          appendLog("shell", "bootstrap-token-retry", retryToken);
-          ui.pairingToken.value = retryToken;
-          bridge = createBridge(retryToken);
-          try {
-            registration = await bridge.connect();
-            connected = true;
+    throw lastError || new Error("Bridge connection failed.");
+  }
+
+  async function superviseConnection() {
+    if (state.supervisorPromise) {
+      return state.supervisorPromise;
+    }
+
+    state.stopRequested = false;
+    state.supervisorPromise = (async () => {
+      let attempt = 0;
+      while (!state.stopRequested) {
+        try {
+          const result = await connectOnce();
+          attempt = 0;
+          const closeError = await result.bridge.waitForClose();
+          if (state.stopRequested) {
             break;
-          } catch (retryError) {
-            const retryMessage = String(retryError?.message || retryError);
-            if (!retryMessage.includes("invalid pairing token")) {
-              throw retryError;
-            }
           }
-        }
-
-        if (!connected) {
-          throw error;
+          throw closeError || new Error("Bridge socket closed.");
+        } catch (error) {
+          if (state.stopRequested) {
+            break;
+          }
+          const waitMs = CONNECT_BACKOFF_MS[Math.min(attempt, CONNECT_BACKOFF_MS.length - 1)];
+          attempt += 1;
+          const message = String(error?.message || error);
+          resetBridgeState(`${message} | retry ${Math.round(waitMs / 1000)}s`);
+          appendLog("shell", "reconnect-wait", `${message} | ${waitMs}ms`);
+          await sleep(waitMs);
         }
       }
-
-      state.bridge = bridge;
-      setBadge(ui.bridgeBadge, "bridge online", true);
-      ui.bridgeMeta.textContent = `session=${registration.sessionId} | heartbeat=${registration.heartbeatIntervalSeconds}s`;
-      appendLog("shell", "bridge-connected", registration.sessionId);
-      emit("bridge-connected", { registration });
-      await loadRuntime();
     })();
 
     try {
-      await state.connectPromise;
+      await state.supervisorPromise;
     } finally {
-      state.connectPromise = null;
-      ui.connectButton.disabled = false;
+      state.supervisorPromise = null;
     }
-  }
-
-  async function disconnectBridge() {
-    if (!state.bridge) {
-      return;
-    }
-
-    await state.bridge.disconnect();
-    state.bridge = null;
-    state.runtimeReady = false;
-    state.runtimeVersion = "";
-    setBadge(ui.bridgeBadge, "bridge offline", false);
-    setBadge(ui.runtimeBadge, "runtime idle", false);
-    ui.bridgeMeta.textContent = "Сессия не зарегистрирована.";
-    ui.runtimeMeta.textContent = "Runtime ещё не загружен.";
-    appendLog("shell", "bridge-disconnected");
-    emit("bridge-disconnected");
   }
 
   function bindShellEvents() {
-    ui.connectButton.addEventListener("click", () => {
-      connectBridge().catch((error) => {
-        setBadge(ui.bridgeBadge, "bridge error", false);
-        ui.bridgeMeta.textContent = String(error.message || error);
-        appendLog("shell", "ERROR bridge-connect", ui.bridgeMeta.textContent);
-      });
-    });
-
-    ui.disconnectButton.addEventListener("click", () => {
-      disconnectBridge().catch((error) => {
-        appendLog("shell", "ERROR bridge-disconnect", String(error.message || error));
-      });
-    });
-
-    ui.reloadRuntimeButton.addEventListener("click", () => {
-      loadRuntime().catch((error) => {
-        setBadge(ui.runtimeBadge, "runtime error", false);
-        ui.runtimeMeta.textContent = String(error.message || error);
-        appendLog("shell", "ERROR runtime-load", ui.runtimeMeta.textContent);
-      });
-    });
-
     ui.clearLogButton.addEventListener("click", () => {
       replaceLog("ready");
     });
 
-    ui.utilityUrl.addEventListener("change", persistSettings);
-    ui.workspaceRoot.addEventListener("change", persistSettings);
-
     window.addEventListener("beforeunload", () => {
+      state.stopRequested = true;
       if (state.bridge) {
         state.bridge.disconnect("page-close").catch(() => {});
       }
@@ -1069,27 +1663,22 @@ function createExecutorShell({ modules }) {
     replaceLog("ready");
     renderTabs();
     bindShellEvents();
-    const autoConnect = loadSettings();
     await activateModule(state.activeModuleId);
-    setBadge(ui.bridgeBadge, "bridge offline", false);
-    setBadge(ui.runtimeBadge, "runtime idle", false);
+    setBridgeWaiting(`Автоподключение к ${DEFAULT_EXECUTOR_SETTINGS.utilityUrl}`);
     applyModuleHeader(moduleById.get(state.activeModuleId));
-
-    if (autoConnect) {
-      connectBridge().catch((error) => {
-        setBadge(ui.bridgeBadge, "bridge error", false);
-        ui.bridgeMeta.textContent = String(error.message || error);
-        appendLog("shell", "ERROR autoconnect", ui.bridgeMeta.textContent);
-      });
-    }
+    superviseConnection().catch((error) => {
+      const message = String(error.message || error);
+      resetBridgeState(message);
+      appendLog("shell", "ERROR supervisor", message);
+    });
   }
 
   return {
     init,
     events,
     executeCommand,
-    connectBridge,
-    disconnectBridge,
+    executeBatchCommand,
+    connectBridge: superviseConnection,
     loadRuntime,
     getBridgeState,
   };
@@ -1098,6 +1687,16 @@ function createExecutorShell({ modules }) {
 export {
   EXECUTOR_PROFILE_ID,
   DEFAULT_EXECUTOR_SETTINGS,
+  KOMPAS_COM_ADAPTER,
+  assessRuntimeOverlay,
+  buildDesiredRuntimeSettings,
+  buildUiFingerprintSource,
   createExecutorShell,
+  createTokenCandidates,
+  deriveUiPairingToken,
+  ensureRuntimeOverlay,
+  normalizeRuntimeSettings,
   runtimeDsl,
+  serializeRuntimeLoadSettings,
+  stableStringify,
 };

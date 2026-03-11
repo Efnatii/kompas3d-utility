@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "artifactRoot": "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\out\\e2e\\20260310-235759",
+  "utilityConfigMode": "development-legacy",
+  "utilityExePath": "C:\\__LATENCY__\\__KOMPAS_3D__\\__UTILITY__\\web-bridge-utility-v1.0.0-preview.1-win-x64\\WebBridge.Utility.exe",
+  "utilityUrl": "http://127.0.0.1:38741",
+  "staticUrl": "http://127.0.0.1:5511/index.html",
+  "outputTablePath": "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\out\\e2e\\20260310-235759\\workspace\\table_M2.e2e.tbl",
+  "outputTableSize": 4035,
+  "downloadedPath": "C:\\__MY_PROJECTS__\\git\\kompas3d-utility\\out\\e2e\\20260310-235759\\workspace\\table_M2.e2e.tbl",
+  "downloadedSize": 4035,
+  "autoFollowPath": "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\Cable3D\\table_M2.tbl"
+}
