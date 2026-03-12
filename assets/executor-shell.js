@@ -860,10 +860,18 @@ function assessRuntimeOverlay({
   contribution,
 }) {
   const reasons = [];
+  if (String(effectiveSettings?.ConfigVersion || "") !== String(desiredSettings?.ConfigVersion || "")) {
+    reasons.push("config-version");
+  }
+
   const effectiveOrigins = normalizeArrayForCompare(ensureObject(effectiveSettings?.Security).AllowedOrigins);
   const desiredOrigins = normalizeArrayForCompare(ensureObject(desiredSettings?.Security).AllowedOrigins);
   if (stableStringify(effectiveOrigins) !== stableStringify(desiredOrigins)) {
     reasons.push("allowed-origins");
+  }
+
+  if (String(ensureObject(effectiveSettings?.Security).PairingToken || "") !== String(ensureObject(desiredSettings?.Security).PairingToken || "")) {
+    reasons.push("pairing-token");
   }
 
   if (String(effectiveSettings?.UiUrl || "") !== String(desiredSettings?.UiUrl || "")) {

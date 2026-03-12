@@ -183,6 +183,89 @@ test("runtime overlay skips /config/load when effective config already matches d
   assert.deepEqual(calls, ["/config/effective"]);
 });
 
+test("runtime overlay loads when config version or pairing token is stale even if runtime structure matches", async () => {
+  const contribution = {
+    commands: {
+      "demo.command": {
+        Adapter: "system",
+        Invoke: {
+          Root: "type:System.IO.Path",
+          Chain: [],
+        },
+      },
+    },
+    allowedTypes: ["System.IO.Path"],
+    comAdapters: [],
+  };
+
+  const desiredSettings = await buildDesiredRuntimeSettings({
+    effectiveSettings: {
+      AgentVersion: "1.0.0",
+      ConfigVersion: "bootstrap",
+      ConfigSchemaVersion: 1,
+      UiUrl: "https://ui.example/index.html",
+      Profiles: [],
+      ComAdapters: [],
+      SystemAdapter: {
+        AllowedTypeNames: [],
+      },
+      Security: {
+        AllowedOrigins: ["https://ui.example"],
+        PairingToken: "stale-token",
+      },
+    },
+    pageOrigin: "https://ui.example",
+    pageUrl: "https://ui.example/index.html",
+    sessionToken: "kompas-pages-local",
+    contribution,
+  });
+
+  const staleSettings = {
+    ...desiredSettings,
+    ConfigVersion: "bootstrap",
+    Security: {
+      ...desiredSettings.Security,
+      PairingToken: "stale-token",
+    },
+  };
+
+  const calls = [];
+  const bridge = {
+    async fetchJson(pathname, init = {}) {
+      calls.push({ pathname, init });
+      if (pathname === "/config/effective") {
+        return {
+          response: { ok: true, status: 200 },
+          payload: { payload: { settings: staleSettings } },
+        };
+      }
+      if (pathname === "/config/load") {
+        return {
+          response: { ok: true, status: 200 },
+          payload: { payload: { applied: true, version: { configVersion: desiredSettings.ConfigVersion } } },
+        };
+      }
+      throw new Error(`Unexpected path: ${pathname}`);
+    },
+  };
+
+  const runtime = await ensureRuntimeOverlay({
+    bridge,
+    pageOrigin: "https://ui.example",
+    pageUrl: "https://ui.example/index.html",
+    sessionToken: "kompas-pages-local",
+    contribution,
+  });
+
+  assert.equal(runtime.applied, true);
+  assert.deepEqual(runtime.assessment.reasons, ["config-version", "pairing-token"]);
+  assert.equal(calls.length, 2);
+
+  const request = JSON.parse(calls[1].init.body);
+  assert.equal(request.settings.ConfigVersion, desiredSettings.ConfigVersion);
+  assert.equal(request.settings.Security.PairingToken, "kompas-pages-local");
+});
+
 test("runtime overlay keeps existing kompas adapter fields while injecting cast surfaces", async () => {
   const contribution = {
     commands: {},
