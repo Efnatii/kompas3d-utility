@@ -36,5 +36,8 @@ http.createServer((request, response) => {
   }
 
   response.setHeader("Content-Type", contentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream");
+  response.setHeader("Cache-Control", "no-store, max-age=0");
+  response.setHeader("Pragma", "no-cache");
+  response.setHeader("Expires", "0");
   fs.createReadStream(filePath).pipe(response);
 }).listen(port, host);
