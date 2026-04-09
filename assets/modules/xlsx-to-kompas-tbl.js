@@ -260,6 +260,54 @@ function createXlsxToKompasTblModule() {
               defaultArguments: KOMPAS_API7_ATTACHED_ARGUMENTS,
             },
           ),
+          "xlsx-to-kompas-tbl.active-view-x": context.dsl.command(
+            "kompas",
+            "application",
+            [
+              context.dsl.step("queryInterface", "IApplication"),
+              context.dsl.step("get", "ActiveDocument"),
+              context.dsl.step("get", "ViewsAndLayersManager"),
+              context.dsl.step("get", "Views"),
+              context.dsl.step("get", "ActiveView"),
+              context.dsl.step("queryInterface", "IView"),
+              context.dsl.step("get", "X"),
+            ],
+            {
+              defaultArguments: KOMPAS_API7_ATTACHED_ARGUMENTS,
+            },
+          ),
+          "xlsx-to-kompas-tbl.active-view-y": context.dsl.command(
+            "kompas",
+            "application",
+            [
+              context.dsl.step("queryInterface", "IApplication"),
+              context.dsl.step("get", "ActiveDocument"),
+              context.dsl.step("get", "ViewsAndLayersManager"),
+              context.dsl.step("get", "Views"),
+              context.dsl.step("get", "ActiveView"),
+              context.dsl.step("queryInterface", "IView"),
+              context.dsl.step("get", "Y"),
+            ],
+            {
+              defaultArguments: KOMPAS_API7_ATTACHED_ARGUMENTS,
+            },
+          ),
+          "xlsx-to-kompas-tbl.active-view-update": context.dsl.command(
+            "kompas",
+            "application",
+            [
+              context.dsl.step("queryInterface", "IApplication"),
+              context.dsl.step("get", "ActiveDocument"),
+              context.dsl.step("get", "ViewsAndLayersManager"),
+              context.dsl.step("get", "Views"),
+              context.dsl.step("get", "ActiveView"),
+              context.dsl.step("queryInterface", "IView"),
+              context.dsl.step("call", "Update"),
+            ],
+            {
+              defaultArguments: KOMPAS_API7_ATTACHED_ARGUMENTS,
+            },
+          ),
           "xlsx-to-kompas-tbl.view-table-count": context.dsl.command(
             "kompas",
             "application",
@@ -325,9 +373,64 @@ function createXlsxToKompasTblModule() {
             "kompas",
             "handle",
             [
+              context.dsl.step("queryInterface", "IDrawingTable"),
               context.dsl.step("call", "Save", {
                 args: [context.dsl.arg("path", "path")],
               }),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.table-update": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IDrawingTable"),
+              context.dsl.step("call", "Update"),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.table-get-temp": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IDrawingTable"),
+              context.dsl.step("get", "Temp"),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.table-get-valid": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IDrawingTable"),
+              context.dsl.step("get", "Valid"),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.table-get-x": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IDrawingTable"),
+              context.dsl.step("get", "X"),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.table-get-y": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IDrawingTable"),
+              context.dsl.step("get", "Y"),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.table-set-position": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IDrawingTable"),
+              context.dsl.step("set", "X", {
+                valueArgument: "x",
+              }),
+              context.dsl.step("set", "Y", {
+                valueArgument: "y",
+              }),
+              context.dsl.step("call", "Update"),
             ],
           ),
           "xlsx-to-kompas-tbl.insert-table": context.dsl.command(
@@ -444,7 +547,7 @@ function createXlsxToKompasTblModule() {
               </div>
 
               <label class="field">
-                <span>output path</span>
+                <span>output path (.tbl)</span>
                 <div class="field-inline">
                   <input id="xlsx-output-path" type="text" spellcheck="false" placeholder="%TEMP%\\kompas-pages\\table.tbl">
                   <button class="button button--ghost" type="button" id="xlsx-follow-button">Follow</button>
@@ -457,6 +560,7 @@ function createXlsxToKompasTblModule() {
 
               <div class="action-row">
                 <button class="button" type="button" id="xlsx-export-button">Export</button>
+                <button class="button button--ghost" type="button" id="xlsx-inline-button" disabled>Inline</button>
                 <button class="button button--ghost" type="button" id="xlsx-insert-button" disabled>Insert</button>
                 <button class="button button--ghost" type="button" id="xlsx-download-button" disabled>Download</button>
                 <button class="button button--ghost" type="button" id="xlsx-reset-button">Reset</button>
@@ -500,6 +604,7 @@ function createXlsxToKompasTblModule() {
         layoutSummary: container.querySelector("#xlsx-layout-summary"),
         resultBox: container.querySelector("#xlsx-result-box"),
         exportButton: container.querySelector("#xlsx-export-button"),
+        inlineButton: container.querySelector("#xlsx-inline-button"),
         insertButton: container.querySelector("#xlsx-insert-button"),
         downloadButton: container.querySelector("#xlsx-download-button"),
         resetButton: container.querySelector("#xlsx-reset-button"),
@@ -593,11 +698,11 @@ function createXlsxToKompasTblModule() {
         refs.followButton.classList.toggle("is-active", state.autoFollowOutput);
         if (state.autoFollowOutput) {
           refs.outputMode.textContent = state.fileName
-            ? "auto-follow: путь следует за активным документом KOMPAS или %TEMP%"
+            ? "auto-follow: path for Export/Insert; Inline ignores it"
             : "auto-follow: waiting for XLSX";
           return;
         }
-        refs.outputMode.textContent = "manual path: follow отключён до Reset или кнопки Follow";
+        refs.outputMode.textContent = "manual path: used by Export/Insert until Reset or Follow";
       }
 
       function updateModuleIndicator() {
@@ -628,6 +733,7 @@ function createXlsxToKompasTblModule() {
         const hasActiveView = Boolean(state.status?.viewHandleId);
 
         refs.exportButton.disabled = !bridgeState.runtimeReady || !hasMatrix || !hasActiveView;
+        refs.inlineButton.disabled = !bridgeState.runtimeReady || !hasMatrix || !hasActiveView;
         refs.insertButton.disabled = !bridgeState.runtimeReady || !hasExportPath || !hasActiveView;
         refs.downloadButton.disabled = !hasBytes;
       }
@@ -786,7 +892,61 @@ function createXlsxToKompasTblModule() {
         throw new Error(lastStatus?.errorMessage || "Активный 2D документ KOMPAS или его view не найден.");
       }
 
-      async function exportTableViaRuntime(outputPath, rows, cols) {
+      async function readViewTableCount() {
+        const execution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.view-table-count",
+          {},
+          15000,
+        );
+        return Number(execution.result) || 0;
+      }
+
+      async function readActiveViewPoint() {
+        const [xExecution, yExecution] = await Promise.all([
+          context.executeCommand("xlsx-to-kompas-tbl.active-view-x", {}, 15000),
+          context.executeCommand("xlsx-to-kompas-tbl.active-view-y", {}, 15000),
+        ]);
+        return {
+          x: Number(xExecution.result) || 0,
+          y: Number(yExecution.result) || 0,
+        };
+      }
+
+      async function updateActiveView() {
+        const execution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.active-view-update",
+          {},
+          30000,
+        );
+        if (execution.result === false) {
+          throw new Error("KOMPAS returned Update=false for active view.");
+        }
+      }
+
+      function refreshActiveViewSoon(reason) {
+        window.setTimeout(() => {
+          updateActiveView().catch((error) => {
+            context.logger.error(`view-update:${reason}`, String(error.message || error));
+          });
+        }, 0);
+      }
+
+      async function readTableDebug(tableHandleId) {
+        const [tempExecution, validExecution, xExecution, yExecution] = await Promise.all([
+          context.executeCommand("xlsx-to-kompas-tbl.table-get-temp", { handleId: tableHandleId }, 15000),
+          context.executeCommand("xlsx-to-kompas-tbl.table-get-valid", { handleId: tableHandleId }, 15000),
+          context.executeCommand("xlsx-to-kompas-tbl.table-get-x", { handleId: tableHandleId }, 15000),
+          context.executeCommand("xlsx-to-kompas-tbl.table-get-y", { handleId: tableHandleId }, 15000),
+        ]);
+        return {
+          temp: Boolean(tempExecution.result),
+          valid: Boolean(validExecution.result),
+          x: Number(xExecution.result) || 0,
+          y: Number(yExecution.result) || 0,
+        };
+      }
+
+      async function createTableHandle(rows, cols) {
         const createExecution = await context.executeCommand(
           "xlsx-to-kompas-tbl.create-table",
           {
@@ -801,10 +961,18 @@ function createXlsxToKompasTblModule() {
         if (!tableHandleId) {
           throw new Error("KOMPAS did not return a drawing table handle.");
         }
+        return tableHandleId;
+      }
 
+      async function populateTableHandle(tableHandleId, progressLabel) {
         const batches = createCellWriteBatches(state.matrix, EXPORT_BATCH_SIZE);
         const totalWrites = collectCellWrites(state.matrix).length;
         let completedWrites = 0;
+        if (totalWrites === 0) {
+          refs.resultBox.textContent = `${progressLabel}: 0/0 cells`;
+          return;
+        }
+
         for (const batch of batches) {
           await context.executeBatchCommand(batch.map((command) => ({
             ...command,
@@ -817,7 +985,22 @@ function createXlsxToKompasTblModule() {
             stopOnError: true,
           });
           completedWrites += batch.length;
-          refs.resultBox.textContent = `Экспорт: ${completedWrites}/${totalWrites} ячеек`;
+          refs.resultBox.textContent = `${progressLabel}: ${completedWrites}/${totalWrites} cells`;
+        }
+      }
+
+      async function exportTableViaRuntime(outputPath, rows, cols) {
+        const tableHandleId = await createTableHandle(rows, cols);
+        await populateTableHandle(tableHandleId, "Export");
+        const updateExecution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.table-update",
+          {
+            handleId: tableHandleId,
+          },
+          30000,
+        );
+        if (updateExecution.result === false) {
+          throw new Error("KOMPAS returned Update=false before Save.");
         }
 
         const saveExecution = await context.executeCommand(
@@ -834,6 +1017,50 @@ function createXlsxToKompasTblModule() {
 
         return {
           outputPath,
+          rows,
+          cols,
+        };
+      }
+
+      async function inlineTableViaRuntime(rows, cols) {
+        const tableCountBefore = await readViewTableCount();
+        const activeViewPoint = await readActiveViewPoint();
+        const targetX = activeViewPoint.x + 20;
+        const targetY = activeViewPoint.y + 20;
+        const tableHandleId = await createTableHandle(rows, cols);
+        await populateTableHandle(tableHandleId, "Inline");
+        const updateExecution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.table-update",
+          {
+            handleId: tableHandleId,
+          },
+          30000,
+        );
+        if (updateExecution.result === false) {
+          throw new Error("KOMPAS returned Update=false for Inline.");
+        }
+        const positionExecution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.table-set-position",
+          {
+            handleId: tableHandleId,
+            x: targetX,
+            y: targetY,
+          },
+          30000,
+        );
+        if (positionExecution.result === false) {
+          throw new Error("KOMPAS returned Update=false while positioning Inline table.");
+        }
+        const debugAfterUpdate = await readTableDebug(tableHandleId);
+        const tableCountAfter = await readViewTableCount();
+
+        return {
+          tableHandleId,
+          tableCountBefore,
+          tableCountAfter,
+          activeViewPoint,
+          targetPoint: { x: targetX, y: targetY },
+          debugAfterUpdate,
           rows,
           cols,
         };
@@ -878,27 +1105,58 @@ function createXlsxToKompasTblModule() {
         }
       }
 
+      async function inlineTable() {
+        const { rows, cols } = currentDimensions();
+        if (!rows || !cols) {
+          throw new Error("XLSX matrix is empty.");
+        }
+
+        await ensureActiveViewStatus();
+        refs.resultBox.textContent = "Inline is running...";
+        refs.inlineButton.disabled = true;
+
+        try {
+          const result = await inlineTableViaRuntime(rows, cols);
+          refs.resultBox.textContent = `Inline | ${result.tableCountBefore} -> ${result.tableCountAfter} | temp=${result.debugAfterUpdate.temp} valid=${result.debugAfterUpdate.valid} x=${result.debugAfterUpdate.x} y=${result.debugAfterUpdate.y} view=(${result.activeViewPoint.x},${result.activeViewPoint.y}) target=(${result.targetPoint.x},${result.targetPoint.y})`;
+          context.logger.info("inline", JSON.stringify({
+            before: result.tableCountBefore,
+            after: result.tableCountAfter,
+            temp: result.debugAfterUpdate.temp,
+            valid: result.debugAfterUpdate.valid,
+            x: result.debugAfterUpdate.x,
+            y: result.debugAfterUpdate.y,
+            viewX: result.activeViewPoint.x,
+            viewY: result.activeViewPoint.y,
+            targetX: result.targetPoint.x,
+            targetY: result.targetPoint.y,
+          }));
+          refreshActiveViewSoon("inline");
+          await refreshStatus({ quiet: true });
+        } finally {
+          refs.inlineButton.disabled = false;
+          updateActionState();
+        }
+      }
+
       async function insertTableViaRuntime(tblPath) {
-        const beforeExecution = await context.executeCommand(
-          "xlsx-to-kompas-tbl.view-table-count",
-          {},
-          15000,
-        );
-        await context.executeCommand(
+        const tableCountBefore = await readViewTableCount();
+        const insertExecution = await context.executeCommand(
           "xlsx-to-kompas-tbl.insert-table",
           {
             path: tblPath,
           },
           60000,
         );
-        const afterExecution = await context.executeCommand(
-          "xlsx-to-kompas-tbl.view-table-count",
-          {},
-          15000,
-        );
+        const tableHandleId = String(insertExecution.result?.handleId || "");
+        const debugAfterInsert = tableHandleId
+          ? await readTableDebug(tableHandleId)
+          : null;
+        const tableCountAfter = await readViewTableCount();
         return {
-          tableCountBefore: Number(beforeExecution.result) || 0,
-          tableCountAfter: Number(afterExecution.result) || 0,
+          tableHandleId,
+          tableCountBefore,
+          tableCountAfter,
+          debugAfterInsert,
         };
       }
 
@@ -912,8 +1170,11 @@ function createXlsxToKompasTblModule() {
         refs.resultBox.textContent = "Вставка выполняется...";
         const result = await insertTableViaRuntime(tblPath);
 
-        refs.resultBox.textContent = `Inserted | ${result.tableCountBefore} -> ${result.tableCountAfter}`;
+        refs.resultBox.textContent = result.debugAfterInsert
+          ? `Inserted | ${result.tableCountBefore} -> ${result.tableCountAfter} | temp=${result.debugAfterInsert.temp} valid=${result.debugAfterInsert.valid} x=${result.debugAfterInsert.x} y=${result.debugAfterInsert.y}`
+          : `Inserted | ${result.tableCountBefore} -> ${result.tableCountAfter}`;
         context.logger.info("insert", tblPath);
+        refreshActiveViewSoon("insert");
         await refreshStatus({ quiet: true });
       }
 
@@ -958,7 +1219,7 @@ function createXlsxToKompasTblModule() {
         const { rows, cols } = currentDimensions();
         state.layout = reconcileLinkedLayout(state.layout, rows || 1, cols || 1, state.layoutDriver);
         persistLayout();
-        refs.resultBox.textContent = "Матрица загружена. Можно запускать export.";
+        refs.resultBox.textContent = "Matrix loaded. Export or Inline is ready.";
         context.logger.info("xlsx-parsed", `${state.fileName} ${formatSize(rows, cols)}`);
         await ensureTempPathLoaded();
         renderAll();
@@ -1021,6 +1282,14 @@ function createXlsxToKompasTblModule() {
         exportTable().catch((error) => {
           refs.resultBox.textContent = String(error.message || error);
           context.logger.error("export", refs.resultBox.textContent);
+          updateActionState();
+        });
+      });
+
+      refs.inlineButton.addEventListener("click", () => {
+        inlineTable().catch((error) => {
+          refs.resultBox.textContent = String(error.message || error);
+          context.logger.error("inline", refs.resultBox.textContent);
           updateActionState();
         });
       });

@@ -9,7 +9,14 @@ import { buildRuntimeConfig } from "./build_runtime_config.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..", "..");
-const webBridgeRepoRoot = "C:\\__MY_PROJECTS__\\git\\web-bridge-utility";
+const webBridgeRepoRootCandidates = [
+  "C:\\__SHARED_FOLDER__\\__GIT__\\web-bridge-utility",
+  "C:\\__MY_PROJECTS__\\git\\web-bridge-utility",
+];
+const webBridgeRepoRoot = resolveExistingPath(
+  webBridgeRepoRootCandidates,
+  "web-bridge-utility repository was not found.",
+);
 const siteRoot = repoRoot;
 const fixturePath = path.join(__dirname, "fixtures", "table_M2.xlsx");
 const outputRoot = path.join(repoRoot, "out", "e2e");
@@ -19,6 +26,7 @@ const developmentConfigCandidates = [
 
 const utilityCandidates = [
   path.join("C:\\__LATENCY__\\__KOMPAS_3D__\\__UTILITY__", "web-bridge-utility-v1.0.0-preview.1-win-x64", "WebBridge.Utility.exe"),
+  path.join(webBridgeRepoRoot, "artifacts", "publish", "utility", "win-x64", "WebBridge.Utility.exe"),
   path.join(webBridgeRepoRoot, "artifacts", "publish", "agent", "win-x64", "WebBridge.Utility.exe"),
   path.join(webBridgeRepoRoot, "src", "WebBridge.Utility", "bin", "Release", "net8.0", "win-x64", "WebBridge.Utility.exe"),
   path.join(webBridgeRepoRoot, "src", "WebBridge.Utility", "bin", "Debug", "net8.0", "win-x64", "WebBridge.Utility.exe"),
@@ -42,7 +50,13 @@ function nowStamp() {
 }
 
 function parseArgs(argv) {
-  const parsed = { browser: "msedge", utilityConfigMode: "bootstrap" };
+  const parsed = {
+    browser: "msedge",
+    utilityConfigMode: "development-flat",
+    headed: false,
+    pauseAfterInlineMs: 0,
+    stopAfterInline: false,
+  };
   for (let index = 2; index < argv.length; index += 1) {
     const token = argv[index];
     const value = argv[index + 1];
@@ -61,6 +75,16 @@ function parseArgs(argv) {
         }
         parsed.utilityConfigMode = value;
         index += 1;
+        break;
+      case "--headed":
+        parsed.headed = true;
+        break;
+      case "--pause-after-inline-ms":
+        parsed.pauseAfterInlineMs = Math.max(0, Number.parseInt(value, 10) || 0);
+        index += 1;
+        break;
+      case "--stop-after-inline":
+        parsed.stopAfterInline = true;
         break;
       default:
         throw new Error(`Unknown argument: ${token}`);
@@ -406,6 +430,7 @@ async function main() {
     success: false,
     artifactRoot,
     utilityConfigMode: args.utilityConfigMode,
+    webBridgeRepoRoot,
     utilityExePath,
     utilityUrl,
     staticUrl,
@@ -416,8 +441,8 @@ async function main() {
     await waitForHealth(utilityUrl, 90000);
 
     const launchOptions = args.browser === "chromium"
-      ? { headless: true }
-      : { channel: args.browser, headless: true };
+      ? { headless: !args.headed }
+      : { channel: args.browser, headless: !args.headed };
     browser = await chromium.launch(launchOptions);
     const page = await browser.newPage({
       viewport: { width: 1440, height: 980 },
@@ -468,6 +493,58 @@ async function main() {
     await page.screenshot({ path: path.join(screenshotsRoot, "20-uploaded.png"), fullPage: true });
 
     await page.locator("#xlsx-output-path").fill(outputTablePath);
+    const inlineCountBeforeExecution = await executeCommand(
+      utilityUrl,
+      pairingToken,
+      pagesOrigin,
+      "kompas-pages-executor",
+      "xlsx-to-kompas-tbl.view-table-count",
+      {},
+      15000,
+    );
+    const inlineCountBefore = Number(inlineCountBeforeExecution.result) || 0;
+    await page.locator("#xlsx-inline-button").click();
+    await page.locator("#xlsx-result-box").filter({ hasText: "Inline |" }).waitFor({ timeout: 180000 });
+    await page.screenshot({ path: path.join(screenshotsRoot, "25-inline.png"), fullPage: true });
+
+    const inlineCountAfterExecution = await executeCommand(
+      utilityUrl,
+      pairingToken,
+      pagesOrigin,
+      "kompas-pages-executor",
+      "xlsx-to-kompas-tbl.view-table-count",
+      {},
+      15000,
+    );
+    const inlineCountAfter = Number(inlineCountAfterExecution.result) || 0;
+    if (inlineCountAfter !== inlineCountBefore + 1) {
+      throw new Error(`Inline should add exactly one table: ${inlineCountBefore} -> ${inlineCountAfter}`);
+    }
+    if (fs.existsSync(outputTablePath)) {
+      throw new Error(`Inline must not create a .tbl file: ${outputTablePath}`);
+    }
+    const inlineResultText = await page.locator("#xlsx-result-box").textContent();
+
+    if (args.pauseAfterInlineMs > 0) {
+      await page.waitForTimeout(args.pauseAfterInlineMs);
+      await page.screenshot({ path: path.join(screenshotsRoot, "26-inline-paused.png"), fullPage: true });
+    }
+
+    if (args.stopAfterInline) {
+      Object.assign(report, {
+        success: true,
+        autoFollowPath,
+        inlineCountBefore,
+        inlineCountAfter,
+        inlineResultText,
+        stopAfterInline: true,
+        pauseAfterInlineMs: args.pauseAfterInlineMs,
+      });
+      fs.writeFileSync(path.join(artifactRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      return;
+    }
+
     await page.locator("#xlsx-export-button").click();
     await page.locator("#xlsx-result-box").filter({ hasText: "OK" }).waitFor({ timeout: 180000 });
     await page.screenshot({ path: path.join(screenshotsRoot, "30-exported.png"), fullPage: true });
@@ -484,6 +561,7 @@ async function main() {
     await page.locator("#xlsx-insert-button").click();
     await page.locator("#xlsx-result-box").filter({ hasText: "Inserted" }).waitFor({ timeout: 60000 });
     await page.screenshot({ path: path.join(screenshotsRoot, "40-inserted.png"), fullPage: true });
+    const insertResultText = await page.locator("#xlsx-result-box").textContent();
 
     const [download] = await Promise.all([
       page.waitForEvent("download"),
@@ -513,6 +591,10 @@ async function main() {
       downloadedPath,
       downloadedSize: fs.statSync(downloadedPath).size,
       autoFollowPath,
+      inlineCountBefore,
+      inlineCountAfter,
+      inlineResultText,
+      insertResultText,
     });
     fs.writeFileSync(path.join(artifactRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
