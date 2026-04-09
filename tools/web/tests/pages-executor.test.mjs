@@ -12,8 +12,14 @@ import {
   serializeRuntimeLoadSettings,
 } from "../../../assets/executor-shell.js";
 import {
+  buildWorkbookStyleContext,
   buildAutoOutputPath,
+  buildInlineTempOutputPath,
+  createCellTransferPayload,
   createCellWriteBatches,
+  createFormattedCellWriteBatches,
+  createXlsxToKompasTblModule,
+  parseWorksheetCellMeta,
   reconcileLinkedLayout,
 } from "../../../assets/modules/xlsx-to-kompas-tbl.js";
 
@@ -307,16 +313,82 @@ test("runtime overlay keeps existing kompas adapter fields while injecting cast 
     kompasAdapter.InteropAssemblies,
     [
       "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\PolynomLib\\Bin\\Client\\Interop.KompasAPI7.dll",
+      "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\PolynomLib\\Bin\\Client\\Interop.Kompas6API5.dll",
       "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Bin\\Interop.KompasAPI7.dll",
     ],
   );
   assert.equal(kompasAdapter.ReuseApplication, true);
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "KompasObject"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ksDocument2D"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ksDynamicArray"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ksTextParam"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ksTextLineParam"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ksTextItemParam"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ksTextItemFont"));
   assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ISymbols2DContainer"));
   assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ITable"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ITableRange"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ICellFormat"));
   assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "IText"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ITextLine"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ITextItem"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "ITextFont"));
+  assert(kompasAdapter.Surfaces.some((surface) => surface.Name === "IDocumentFrame"));
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "KompasObject")?.Iid,
+    "e36bc97c-39d6-4402-9c25-c7008a217e02",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ksDocument2D")?.Iid,
+    "af4e160d-5c89-4f21-b0f2-d53397bdaf78",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ksDynamicArray")?.Iid,
+    "4d91cd9a-6e02-409d-9360-cf7fef60d31c",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ksTextParam")?.Iid,
+    "7f7d6f96-97da-11d6-8732-00c0262cdd2c",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ksTextLineParam")?.Iid,
+    "364521ba-94b5-11d6-8732-00c0262cdd2c",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ksTextItemParam")?.Iid,
+    "364521b7-94b5-11d6-8732-00c0262cdd2c",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ksTextItemFont")?.Iid,
+    "364521bd-94b5-11d6-8732-00c0262cdd2c",
+  );
   assert.equal(
     kompasAdapter.Surfaces.find((surface) => surface.Name === "ISymbols2DContainer")?.Iid,
     "f46b0086-17f2-4489-a5a7-0aa677610afd",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "IDocumentFrame")?.Iid,
+    "4437faba-990f-45e2-b1a2-7754fb326b76",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ITableRange")?.Iid,
+    "d78e47dc-172b-4824-a519-9bc2c0387b5c",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ICellFormat")?.Iid,
+    "9f2f27e7-8fb2-4c6c-a54d-35db240060d8",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ITextLine")?.Iid,
+    "aab72fe2-dea3-4fb6-b0dd-b926249ef67c",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ITextItem")?.Iid,
+    "1de74afb-5026-4b85-861f-f0cfdbd443e6",
+  );
+  assert.equal(
+    kompasAdapter.Surfaces.find((surface) => surface.Name === "ITextFont")?.Iid,
+    "a6ad008d-58d1-48b5-bd29-e6795289fe4b",
   );
 });
 
@@ -515,4 +587,208 @@ test("export batching filters empty cells and follows output path rules", () => 
     }),
     "C:\\Temp\\kompas-pages\\table_M2.tbl",
   );
+  assert.match(
+    buildInlineTempOutputPath({
+      fileName: "table_M2.xlsx",
+      tempPath: "C:\\Temp",
+    }),
+    /^C:\\Temp\\kompas-pages\\inline\\table_M2-inline-\d+\.tbl$/,
+  );
+});
+
+test("rich XLSX payload keeps run-level formatting and multiline structure", () => {
+  const stylesXml = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><name val="Calibri" /><color theme="1" /><sz val="11" /></font><font><name val="Arial" /><color rgb="00FF0000" /><sz val="10" /></font></fonts><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="center" wrapText="1" /></xf></cellXfs></styleSheet>`;
+  const worksheetXml = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" s="1" t="inlineStr"><is><r><rPr><rFont val="Arial" /><b val="1" /><color rgb="00FF0000" /><sz val="14" /></rPr><t>Bold</t></r><r><t xml:space="preserve"> + </t></r><r><rPr><rFont val="Arial" /><i val="1" /><color rgb="000000FF" /><sz val="12" /><u val="single" /></rPr><t>Blue&#10;Italic</t></r></is></c></row></sheetData></worksheet>`;
+  const workbook = {
+    Themes: {
+      themeElements: {
+        clrScheme: [
+          { rgb: "FFFFFF" },
+          { rgb: "000000" },
+        ],
+      },
+    },
+    files: {
+      "xl/styles.xml": {
+        content: new TextEncoder().encode(stylesXml),
+      },
+    },
+  };
+  const styleContext = buildWorkbookStyleContext(workbook);
+  const cellMeta = parseWorksheetCellMeta(worksheetXml).A1;
+  const payload = createCellTransferPayload({
+    address: "A1",
+    rowIndex: 0,
+    columnIndex: 0,
+    text: "Bold + Blue\nItalic",
+    styleIndex: cellMeta.styleIndex,
+    richTextXml: cellMeta.inlineRichXml,
+    styleContext,
+    sharedStringEntry: null,
+  });
+
+  assert.equal(payload.alignCode, 1);
+  assert.equal(payload.oneLine, false);
+  assert.equal(payload.lines.length, 2);
+  assert.deepEqual(
+    payload.lines[0].items.map((item) => item.text),
+    ["Bold", " + ", "Blue"],
+  );
+  assert.equal(payload.lines[0].items[0].fontName, "Arial");
+  assert.equal(payload.lines[0].items[0].bold, true);
+  assert.equal(payload.lines[0].items[0].italic, false);
+  assert.equal(payload.lines[0].items[0].color, 0xFF0000);
+  assert.equal(payload.lines[0].items[0].heightMm, 4.9389);
+  assert.equal(payload.lines[1].items[0].text, "Italic");
+  assert.equal(payload.lines[1].items[0].italic, true);
+  assert.equal(payload.lines[1].items[0].underline, true);
+  assert.equal(payload.lines[1].items[0].color, 0x0000FF);
+});
+
+test("formatted cell batching emits native line and item commands", () => {
+  const stylesXml = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><name val="Calibri" /><color rgb="00000000" /><sz val="11" /></font></fonts><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /></cellXfs></styleSheet>`;
+  const workbook = {
+    Themes: { themeElements: { clrScheme: [] } },
+    files: {
+      "xl/styles.xml": {
+        content: new TextEncoder().encode(stylesXml),
+      },
+    },
+  };
+  const styleContext = buildWorkbookStyleContext(workbook);
+  const payload = createCellTransferPayload({
+    address: "A1",
+    rowIndex: 0,
+    columnIndex: 0,
+    text: "Line 1\nLine 2",
+    styleIndex: 0,
+    richTextXml: "",
+    styleContext,
+    sharedStringEntry: null,
+  });
+  const batches = createFormattedCellWriteBatches([[payload]], 2);
+
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].cellCount, 1);
+  assert.deepEqual(
+    batches[0].commands.map((command) => command.commandId),
+    [
+      "xlsx-to-kompas-tbl.table-cell-clear-text",
+      "xlsx-to-kompas-tbl.table-cell-set-one-line",
+      "xlsx-to-kompas-tbl.table-cell-add-line",
+      "xlsx-to-kompas-tbl.table-cell-add-item-before",
+      "xlsx-to-kompas-tbl.table-cell-add-line",
+      "xlsx-to-kompas-tbl.table-cell-add-item-before",
+    ],
+  );
+  assert.equal(batches[0].commands[1].arguments.oneLine, false);
+  assert.equal(batches[0].commands[3].arguments.lineIndex, 0);
+  assert.equal(batches[0].commands[3].arguments.itemIndex, 0);
+  assert.equal(batches[0].commands[3].arguments.value, "Line 1");
+  assert.equal(batches[0].commands[5].arguments.lineIndex, 1);
+  assert.equal(batches[0].commands[5].arguments.itemIndex, 0);
+  assert.equal(batches[0].commands[5].arguments.value, "Line 2");
+  assert.equal(batches[0].commands[3].arguments.fontName, "Calibri");
+  assert.equal(batches[0].commands[3].arguments.heightMm, 3.8806);
+});
+
+test("xlsx runtime contribution uses active frame center commands for visible inline placement", () => {
+  const dsl = {
+    arg(name, converter) {
+      const payload = { FromArgument: name };
+      if (converter) {
+        payload.Converter = converter;
+      }
+      return payload;
+    },
+    literal(value, converter) {
+      const payload = { Literal: value };
+      if (converter) {
+        payload.Converter = converter;
+      }
+      return payload;
+    },
+    step(operation, member = "", options = {}) {
+      const payload = {
+        Operation: operation,
+        Member: member,
+      };
+      if (options.args) {
+        payload.Args = options.args;
+      }
+      if (options.valueArgument) {
+        payload.ValueArgument = options.valueArgument;
+      }
+      if (options.storeAs) {
+        payload.StoreAs = options.storeAs;
+      }
+      return payload;
+    },
+    command(adapter, root, chain, options = {}) {
+      const payload = {
+        Adapter: adapter,
+        Invoke: {
+          Root: root,
+          Chain: chain,
+        },
+      };
+      if (options.defaultArguments) {
+        payload.DefaultArguments = options.defaultArguments;
+      }
+      if (options.returnPath) {
+        payload.Invoke.ReturnPath = options.returnPath;
+      }
+      return payload;
+    },
+  };
+
+  const contribution = createXlsxToKompasTblModule().getRuntimeContribution({ dsl });
+  const frameCenterX = contribution.commands["xlsx-to-kompas-tbl.active-frame-center-x"];
+  const frameRefresh = contribution.commands["xlsx-to-kompas-tbl.active-frame-refresh"];
+  const setOneLine = contribution.commands["xlsx-to-kompas-tbl.table-cell-set-one-line"];
+  const addItemBefore = contribution.commands["xlsx-to-kompas-tbl.table-cell-add-item-before"];
+  const setItem = contribution.commands["xlsx-to-kompas-tbl.table-cell-set-item"];
+  const addItem = contribution.commands["xlsx-to-kompas-tbl.table-cell-add-item"];
+  const getItemColor = contribution.commands["xlsx-to-kompas-tbl.table-cell-get-item-color"];
+  const api5ActiveDocument2D = contribution.commands["xlsx-to-kompas-tbl.api5-active-document2d"];
+  const api5CreateTextParam = contribution.commands["xlsx-to-kompas-tbl.api5-create-text-param"];
+  const api5SetTableCellText = contribution.commands["xlsx-to-kompas-tbl.api5-document-set-table-cell-text"];
+
+  assert.equal(frameCenterX.Invoke.ReturnPath, "stored:x");
+  assert.equal(frameCenterX.Invoke.Chain.at(-1).Member, "GetZoomScale");
+  assert.deepEqual(
+    frameCenterX.Invoke.Chain.at(-1).Args,
+    [
+      { Literal: 0, Converter: "double", ByRef: true, CaptureAs: "x" },
+      { Literal: 0, Converter: "double", ByRef: true, CaptureAs: "y" },
+      { Literal: 0, Converter: "double", ByRef: true, CaptureAs: "scale" },
+    ],
+  );
+  assert.equal(frameCenterX.Invoke.Chain.at(-2).Member, "IDocumentFrame");
+  assert.equal(frameRefresh.Invoke.Chain.at(-1).Member, "RefreshWindow");
+  assert.equal(setOneLine.Invoke.Chain.at(1).Member, "Range");
+  assert.equal(setOneLine.Invoke.Chain.at(-2).Member, "ICellFormat");
+  assert.equal(setOneLine.Invoke.Chain.at(-1).Member, "OneLine");
+  assert.equal(setItem.Invoke.Chain.at(7).Member, "TextItem");
+  assert.equal(setItem.Invoke.Chain.at(8).Member, "ITextItem");
+  assert.equal(setItem.Invoke.Chain.at(10).Member, "ITextFont");
+  assert.equal(addItemBefore.Invoke.Chain.at(7).Member, "AddBefore");
+  assert.equal(addItemBefore.Invoke.Chain.at(8).Member, "ITextItem");
+  assert.equal(addItem.Invoke.Chain.at(5).Member, "TextLine");
+  assert.equal(addItem.Invoke.Chain.at(6).Member, "ITextLine");
+  assert.equal(addItem.Invoke.Chain.at(8).Member, "ITextItem");
+  assert.equal(addItem.Invoke.Chain.at(10).Member, "ITextFont");
+  assert.equal(addItem.Invoke.Chain.at(11).Member, "FontName");
+  assert.equal(addItem.Invoke.Chain.at(15).Member, "Color");
+  assert.equal(addItem.Invoke.Chain.at(16).Member, "WidthFactor");
+  assert.equal(getItemColor.Invoke.Chain.at(9).Member, "ITextFont");
+  assert.equal(getItemColor.Invoke.Chain.at(10).Member, "Color");
+  assert.deepEqual(api5ActiveDocument2D.DefaultArguments?.progIds, ["KOMPAS.Application.5"]);
+  assert.equal(api5ActiveDocument2D.Invoke.Chain.length, 1);
+  assert.equal(api5ActiveDocument2D.Invoke.Chain[0].Member, "ActiveDocument2D");
+  assert.deepEqual(api5CreateTextParam.DefaultArguments?.progIds, ["KOMPAS.Application.5"]);
+  assert.equal(api5CreateTextParam.Invoke.Chain.length, 1);
+  assert.equal(api5CreateTextParam.Invoke.Chain[0].Member, "GetParamStruct");
+  assert.equal(api5SetTableCellText.Invoke.Chain.length, 1);
+  assert.equal(api5SetTableCellText.Invoke.Chain[0].Member, "ksSetTableColumnText");
 });

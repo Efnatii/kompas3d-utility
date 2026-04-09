@@ -28,9 +28,52 @@ const KOMPAS_COM_ADAPTER = {
   CompactReportDefault: false,
   InteropAssemblies: [
     "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\PolynomLib\\Bin\\Client\\Interop.KompasAPI7.dll",
+    "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Libs\\PolynomLib\\Bin\\Client\\Interop.Kompas6API5.dll",
     "C:\\Program Files\\ASCON\\KOMPAS-3D v24\\Bin\\Interop.KompasAPI7.dll",
   ],
   Surfaces: [
+    {
+      Name: "KompasObject",
+      ClrTypeName: "Kompas6API5.KompasObject",
+      Iid: "e36bc97c-39d6-4402-9c25-c7008a217e02",
+      Aliases: ["kompasObject", "api5"],
+    },
+    {
+      Name: "ksDocument2D",
+      ClrTypeName: "Kompas6API5.ksDocument2D",
+      Iid: "af4e160d-5c89-4f21-b0f2-d53397bdaf78",
+      Aliases: ["ksDocument2D", "api5Document2D"],
+    },
+    {
+      Name: "ksDynamicArray",
+      ClrTypeName: "Kompas6API5.ksDynamicArray",
+      Iid: "4d91cd9a-6e02-409d-9360-cf7fef60d31c",
+      Aliases: ["ksDynamicArray", "api5DynamicArray"],
+    },
+    {
+      Name: "ksTextParam",
+      ClrTypeName: "Kompas6API5.ksTextParam",
+      Iid: "7f7d6f96-97da-11d6-8732-00c0262cdd2c",
+      Aliases: ["ksTextParam", "api5TextParam"],
+    },
+    {
+      Name: "ksTextLineParam",
+      ClrTypeName: "Kompas6API5.ksTextLineParam",
+      Iid: "364521ba-94b5-11d6-8732-00c0262cdd2c",
+      Aliases: ["ksTextLineParam", "api5TextLineParam"],
+    },
+    {
+      Name: "ksTextItemParam",
+      ClrTypeName: "Kompas6API5.ksTextItemParam",
+      Iid: "364521b7-94b5-11d6-8732-00c0262cdd2c",
+      Aliases: ["ksTextItemParam", "api5TextItemParam"],
+    },
+    {
+      Name: "ksTextItemFont",
+      ClrTypeName: "Kompas6API5.ksTextItemFont",
+      Iid: "364521bd-94b5-11d6-8732-00c0262cdd2c",
+      Aliases: ["ksTextItemFont", "api5TextItemFont"],
+    },
     {
       Name: "IApplication",
       ClrTypeName: "KompasAPI7.IApplication",
@@ -42,6 +85,12 @@ const KOMPAS_COM_ADAPTER = {
       ClrTypeName: "KompasAPI7.IKompasDocument2D",
       Iid: "096e62b3-7184-4998-9925-74bb710d8d8e",
       Aliases: ["document2d"],
+    },
+    {
+      Name: "IDocumentFrame",
+      ClrTypeName: "KompasAPI7.IDocumentFrame",
+      Iid: "4437faba-990f-45e2-b1a2-7754fb326b76",
+      Aliases: ["documentFrame"],
     },
     {
       Name: "IViewsAndLayersManager",
@@ -92,10 +141,40 @@ const KOMPAS_COM_ADAPTER = {
       Aliases: ["tableCell"],
     },
     {
+      Name: "ITableRange",
+      ClrTypeName: "KompasAPI7.ITableRange",
+      Iid: "d78e47dc-172b-4824-a519-9bc2c0387b5c",
+      Aliases: ["tableRange"],
+    },
+    {
+      Name: "ICellFormat",
+      ClrTypeName: "KompasAPI7.ICellFormat",
+      Iid: "9f2f27e7-8fb2-4c6c-a54d-35db240060d8",
+      Aliases: ["cellFormat"],
+    },
+    {
       Name: "IText",
       ClrTypeName: "KompasAPI7.IText",
       Iid: "99b840fc-0150-4dad-bc0e-ad481baab8c2",
       Aliases: ["text"],
+    },
+    {
+      Name: "ITextLine",
+      ClrTypeName: "KompasAPI7.ITextLine",
+      Iid: "aab72fe2-dea3-4fb6-b0dd-b926249ef67c",
+      Aliases: ["textLine"],
+    },
+    {
+      Name: "ITextItem",
+      ClrTypeName: "KompasAPI7.ITextItem",
+      Iid: "1de74afb-5026-4b85-861f-f0cfdbd443e6",
+      Aliases: ["textItem"],
+    },
+    {
+      Name: "ITextFont",
+      ClrTypeName: "KompasAPI7.ITextFont",
+      Iid: "a6ad008d-58d1-48b5-bd29-e6795289fe4b",
+      Aliases: ["textFont"],
     },
   ],
   RealtimeAssignments: [
