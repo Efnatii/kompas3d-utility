@@ -8,6 +8,13 @@ const DEFAULT_LAYOUT = {
 };
 
 const EXPORT_BATCH_SIZE = 200;
+const AUTO_FIT_MIN_SCALE = 0.45;
+const AUTO_FIT_MAX_SCALE = 1.8;
+const AUTO_FIT_WIDTH_PADDING_MM = 1.2;
+const AUTO_FIT_HEIGHT_PADDING_MM = 1.0;
+const AUTO_FIT_LINE_HEIGHT_FACTOR = 1.2;
+const AUTO_FIT_SCALE_EPSILON = 0.03;
+const AUTO_FIT_MIN_HEIGHT_MM = 0.8;
 const API5_STRUCT_TYPE_PARAGRAPH_PARAM = 27;
 const API5_STRUCT_TYPE_TEXT_PARAM = 28;
 const API5_STRUCT_TYPE_TEXT_LINE_PARAM = 29;
@@ -191,7 +198,16 @@ function toUint8Array(value) {
 }
 
 function readWorkbookFileText(workbook, filePath) {
-  const entry = workbook?.files?.[normalizeZipPath(filePath)];
+  const targetPath = normalizeZipPath(filePath);
+  let entry = workbook?.files?.[targetPath] || workbook?.files?.[targetPath.replace(/\//g, "\\")];
+  if (!entry?.content) {
+    for (const [candidatePath, candidateEntry] of Object.entries(workbook?.files || {})) {
+      if (normalizeZipPath(candidatePath) === targetPath) {
+        entry = candidateEntry;
+        break;
+      }
+    }
+  }
   if (!entry?.content) {
     return "";
   }
@@ -684,6 +700,198 @@ function createCellTransferPayload({
   };
 }
 
+function cloneTransferItem(item, overrides = {}) {
+  return {
+    text: String(item?.text ?? ""),
+    fontName: String(item?.fontName || DEFAULT_FONT_NAME),
+    heightMm: Number(item?.heightMm) || pointsToMillimeters(DEFAULT_FONT_SIZE_PT),
+    bold: Boolean(item?.bold),
+    italic: Boolean(item?.italic),
+    underline: Boolean(item?.underline),
+    color: Number(item?.color) || 0,
+    widthFactor: Number(item?.widthFactor) || 1,
+    ...overrides,
+  };
+}
+
+function cloneTransferCell(cell, overrides = {}) {
+  return {
+    ...cell,
+    lines: Array.isArray(cell?.lines)
+      ? cell.lines.map((line) => ({
+        ...line,
+        items: Array.isArray(line?.items)
+          ? line.items.map((item) => cloneTransferItem(item))
+          : [],
+      }))
+      : [],
+    ...overrides,
+  };
+}
+
+function getFontWidthFactor(fontName) {
+  const normalized = String(fontName || "").toLowerCase();
+  if (!normalized) {
+    return 0.56;
+  }
+  if (/(courier|consolas|mono|code)/.test(normalized)) {
+    return 0.62;
+  }
+  if (/(verdana|segoe|tahoma)/.test(normalized)) {
+    return 0.58;
+  }
+  if (/(times|georgia|cambria|serif)/.test(normalized)) {
+    return 0.54;
+  }
+  return 0.56;
+}
+
+function estimateCharacterWidthUnits(character) {
+  const value = String(character || "");
+  if (!value) {
+    return 0;
+  }
+  if (value === " ") {
+    return 0.35;
+  }
+  if (/[.,:;'"`!|]/.test(value)) {
+    return 0.3;
+  }
+  if (/[()\[\]{}]/.test(value)) {
+    return 0.36;
+  }
+  if (/[-_/\\+=*]/.test(value)) {
+    return 0.42;
+  }
+  if (/[0-9]/.test(value)) {
+    return 0.56;
+  }
+  if (/[A-ZА-ЯЁ]/.test(value)) {
+    return 0.62;
+  }
+  if (/[a-zа-яё]/.test(value)) {
+    return 0.54;
+  }
+  return 0.58;
+}
+
+function estimateItemWidthMm(item) {
+  const text = String(item?.text ?? "");
+  if (!text) {
+    return 0;
+  }
+  const fontFactor = getFontWidthFactor(item?.fontName);
+  const widthFactor = Number(item?.widthFactor) || 1;
+  const boldFactor = item?.bold ? 1.04 : 1;
+  const italicFactor = item?.italic ? 1.02 : 1;
+  const units = [...text].reduce((total, character) => total + estimateCharacterWidthUnits(character), 0);
+  return units * (Number(item?.heightMm) || pointsToMillimeters(DEFAULT_FONT_SIZE_PT)) * fontFactor * widthFactor * boldFactor * italicFactor;
+}
+
+function estimateLineWidthMm(line) {
+  return Array.isArray(line?.items)
+    ? line.items.reduce((total, item) => total + estimateItemWidthMm(item), 0)
+    : 0;
+}
+
+function estimateLineHeightMm(line) {
+  const maxHeight = Array.isArray(line?.items)
+    ? line.items.reduce((current, item) => Math.max(current, Number(item?.heightMm) || 0), 0)
+    : 0;
+  return maxHeight > 0
+    ? maxHeight * AUTO_FIT_LINE_HEIGHT_FACTOR
+    : pointsToMillimeters(DEFAULT_FONT_SIZE_PT) * AUTO_FIT_LINE_HEIGHT_FACTOR;
+}
+
+function computeCellAutoFitScale(cell, layout) {
+  if (!cell?.hasContent || !Array.isArray(cell.lines) || !cell.lines.length) {
+    return 1;
+  }
+  const availableWidth = Math.max(1, (Number(layout?.cellWidthMm) || DEFAULT_LAYOUT.cellWidthMm) - AUTO_FIT_WIDTH_PADDING_MM);
+  const availableHeight = Math.max(1, (Number(layout?.cellHeightMm) || DEFAULT_LAYOUT.cellHeightMm) - AUTO_FIT_HEIGHT_PADDING_MM);
+  const widestLine = cell.lines.reduce((maxWidth, line) => Math.max(maxWidth, estimateLineWidthMm(line)), 0);
+  const totalHeight = cell.lines.reduce((total, line) => total + estimateLineHeightMm(line), 0);
+  const widthScale = widestLine > 0 ? availableWidth / widestLine : 1;
+  const heightScale = totalHeight > 0 ? availableHeight / totalHeight : 1;
+  let scale = Math.min(widthScale, heightScale);
+  if (!Number.isFinite(scale) || scale <= 0) {
+    scale = 1;
+  }
+  scale = Math.min(AUTO_FIT_MAX_SCALE, Math.max(AUTO_FIT_MIN_SCALE, scale));
+  if (Math.abs(scale - 1) <= AUTO_FIT_SCALE_EPSILON) {
+    return 1;
+  }
+  return Number(scale.toFixed(4));
+}
+
+function scaleCellToLayout(cell, layout) {
+  const scale = computeCellAutoFitScale(cell, layout);
+  if (scale === 1) {
+    return {
+      cell: cloneTransferCell(cell),
+      scale,
+      adjusted: false,
+    };
+  }
+  return {
+    cell: cloneTransferCell(cell, {
+      lines: cell.lines.map((line) => ({
+        ...line,
+        items: line.items.map((item) => cloneTransferItem(item, {
+          heightMm: Math.max(
+            AUTO_FIT_MIN_HEIGHT_MM,
+            roundLayoutValue((Number(item?.heightMm) || pointsToMillimeters(DEFAULT_FONT_SIZE_PT)) * scale),
+          ),
+        })),
+      })),
+    }),
+    scale,
+    adjusted: true,
+  };
+}
+
+function autoFitCellMatrixToLayout(cellMatrix, layout, enabled = false) {
+  if (!enabled) {
+    return {
+      cellMatrix,
+      stats: {
+        enabled: false,
+        adjustedCellCount: 0,
+        minScale: 1,
+        maxScale: 1,
+      },
+    };
+  }
+
+  let adjustedCellCount = 0;
+  let minScale = 1;
+  let maxScale = 1;
+  const nextMatrix = (Array.isArray(cellMatrix) ? cellMatrix : []).map((row) => (
+    Array.isArray(row) ? row.map((cell) => {
+      if (!cell?.hasContent) {
+        return cell;
+      }
+      const result = scaleCellToLayout(cell, layout);
+      minScale = Math.min(minScale, result.scale);
+      maxScale = Math.max(maxScale, result.scale);
+      if (result.adjusted) {
+        adjustedCellCount += 1;
+      }
+      return result.cell;
+    }) : []
+  ));
+
+  return {
+    cellMatrix: nextMatrix,
+    stats: {
+      enabled: true,
+      adjustedCellCount,
+      minScale: Number(minScale.toFixed(4)),
+      maxScale: Number(maxScale.toFixed(4)),
+    },
+  };
+}
+
 function collectFormattedCellWrites(cellMatrix) {
   const writes = [];
   const { rows, cols } = getMatrixDimensions(cellMatrix);
@@ -758,6 +966,33 @@ function createFormattedCellCommands(cell) {
   return commands;
 }
 
+function createFormattedCellStyleCommands(cell) {
+  const commands = [];
+  cell.lines.forEach((line, lineIndex) => {
+    line.items.forEach((item, itemIndex) => {
+      commands.push({
+        commandId: "xlsx-to-kompas-tbl.table-cell-set-item",
+        arguments: {
+          rowIndex: cell.rowIndex,
+          columnIndex: cell.columnIndex,
+          lineIndex,
+          itemIndex,
+          value: item.text,
+          fontName: item.fontName,
+          heightMm: item.heightMm,
+          bold: item.bold,
+          italic: item.italic,
+          underline: item.underline,
+          color: item.color,
+          widthFactor: item.widthFactor,
+        },
+        timeoutMilliseconds: 30000,
+      });
+    });
+  });
+  return commands;
+}
+
 function createFormattedCellWriteBatches(cellMatrix, batchSize = EXPORT_BATCH_SIZE) {
   const cells = collectFormattedCellWrites(cellMatrix);
   const batches = [];
@@ -766,6 +1001,220 @@ function createFormattedCellWriteBatches(cellMatrix, batchSize = EXPORT_BATCH_SI
 
   for (const cell of cells) {
     const cellCommands = createFormattedCellCommands(cell);
+    if (currentCommands.length && currentCommands.length + cellCommands.length > batchSize) {
+      batches.push({
+        commands: currentCommands,
+        cellCount: currentCellCount,
+      });
+      currentCommands = [];
+      currentCellCount = 0;
+    }
+    currentCommands.push(...cellCommands);
+    currentCellCount += 1;
+  }
+
+  if (currentCommands.length) {
+    batches.push({
+      commands: currentCommands,
+      cellCount: currentCellCount,
+    });
+  }
+
+  return batches;
+}
+
+function createFormattedCellStyleWriteBatches(cellMatrix, batchSize = EXPORT_BATCH_SIZE) {
+  const cells = collectFormattedCellWrites(cellMatrix);
+  const batches = [];
+  let currentCommands = [];
+  let currentCellCount = 0;
+
+  for (const cell of cells) {
+    const cellCommands = createFormattedCellStyleCommands(cell);
+    if (currentCommands.length && currentCommands.length + cellCommands.length > batchSize) {
+      batches.push({
+        commands: currentCommands,
+        cellCount: currentCellCount,
+      });
+      currentCommands = [];
+      currentCellCount = 0;
+    }
+    currentCommands.push(...cellCommands);
+    currentCellCount += 1;
+  }
+
+  if (currentCommands.length) {
+    batches.push({
+      commands: currentCommands,
+      cellCount: currentCellCount,
+    });
+  }
+
+  return batches;
+}
+
+function createFirstLineOnlyCellMatrix(cellMatrix) {
+  return (Array.isArray(cellMatrix) ? cellMatrix : []).map((row) => (
+    Array.isArray(row) ? row.map((cell) => {
+      if (!cell?.hasContent || !Array.isArray(cell.lines) || !cell.lines.length) {
+        return cell;
+      }
+      const firstLine = cell.lines[0];
+      return {
+        ...cell,
+        text: firstLine.items.map((item) => String(item?.text || "")).join(""),
+        lines: [firstLine],
+        hasContent: firstLine.items.some((item) => String(item?.text || "") !== ""),
+      };
+    }) : []
+  ));
+}
+
+function createAdditionalLinesOnlyCellMatrix(cellMatrix) {
+  return (Array.isArray(cellMatrix) ? cellMatrix : []).map((row) => (
+    Array.isArray(row) ? row.map((cell) => {
+      if (!cell?.hasContent || !Array.isArray(cell.lines) || cell.lines.length <= 1) {
+        return {
+          ...cell,
+          hasContent: false,
+          lines: [],
+        };
+      }
+      const extraLines = cell.lines.slice(1);
+      return {
+        ...cell,
+        text: extraLines.map((line) => line.items.map((item) => String(item?.text || "")).join("")).join("\n"),
+        lines: extraLines,
+        hasContent: true,
+        oneLine: false,
+      };
+    }) : []
+  ));
+}
+
+function createBaseFormattedCellCommands(cell) {
+  const commands = [{
+    commandId: "xlsx-to-kompas-tbl.table-cell-set-one-line",
+    arguments: {
+      rowIndex: cell.rowIndex,
+      columnIndex: cell.columnIndex,
+      oneLine: Boolean(cell.oneLine),
+    },
+    timeoutMilliseconds: 15000,
+  }];
+  if (Array.isArray(cell.lines) && cell.lines.length) {
+    commands.push({
+      commandId: "xlsx-to-kompas-tbl.table-cell-set-line-align",
+      arguments: {
+        rowIndex: cell.rowIndex,
+        columnIndex: cell.columnIndex,
+        lineIndex: 0,
+        align: cell.alignCode,
+      },
+      timeoutMilliseconds: 15000,
+    });
+    cell.lines[0].items.forEach((item, itemIndex) => {
+      commands.push({
+        commandId: "xlsx-to-kompas-tbl.table-cell-set-item",
+        arguments: {
+          rowIndex: cell.rowIndex,
+          columnIndex: cell.columnIndex,
+          lineIndex: 0,
+          itemIndex,
+          value: item.text,
+          fontName: item.fontName,
+          heightMm: item.heightMm,
+          bold: item.bold,
+          italic: item.italic,
+          underline: item.underline,
+          color: item.color,
+          widthFactor: item.widthFactor,
+        },
+        timeoutMilliseconds: 15000,
+      });
+    });
+  }
+  return commands;
+}
+
+function createAdditionalLineCommands(cell) {
+  const commands = [];
+  cell.lines.forEach((line, extraLineIndex) => {
+    const lineIndex = extraLineIndex + 1;
+    commands.push({
+      commandId: "xlsx-to-kompas-tbl.table-cell-add-line",
+      arguments: {
+        rowIndex: cell.rowIndex,
+        columnIndex: cell.columnIndex,
+        align: cell.alignCode,
+      },
+      timeoutMilliseconds: 30000,
+    });
+    line.items.forEach((item, itemIndex) => {
+      commands.push({
+        commandId: itemIndex === 0
+          ? "xlsx-to-kompas-tbl.table-cell-add-item-before"
+          : "xlsx-to-kompas-tbl.table-cell-add-item",
+        arguments: {
+          rowIndex: cell.rowIndex,
+          columnIndex: cell.columnIndex,
+          lineIndex,
+          itemIndex,
+          value: item.text,
+          fontName: item.fontName,
+          heightMm: item.heightMm,
+          bold: item.bold,
+          italic: item.italic,
+          underline: item.underline,
+          color: item.color,
+          widthFactor: item.widthFactor,
+        },
+        timeoutMilliseconds: 30000,
+      });
+    });
+  });
+  return commands;
+}
+
+function createAdditionalLineStyleCommands(cell) {
+  const commands = [];
+  cell.lines.forEach((line, extraLineIndex) => {
+    const lineIndex = extraLineIndex + 1;
+    line.items.forEach((item, itemIndex) => {
+      commands.push({
+        commandId: "xlsx-to-kompas-tbl.table-cell-set-item",
+        arguments: {
+          rowIndex: cell.rowIndex,
+          columnIndex: cell.columnIndex,
+          lineIndex,
+          itemIndex,
+          value: item.text,
+          fontName: item.fontName,
+          heightMm: item.heightMm,
+          bold: item.bold,
+          italic: item.italic,
+          underline: item.underline,
+          color: item.color,
+          widthFactor: item.widthFactor,
+        },
+        timeoutMilliseconds: 30000,
+      });
+    });
+  });
+  return commands;
+}
+
+function createCommandBatchesFromCells(cellMatrix, createCommands, batchSize = EXPORT_BATCH_SIZE) {
+  const cells = collectFormattedCellWrites(cellMatrix);
+  const batches = [];
+  let currentCommands = [];
+  let currentCellCount = 0;
+
+  for (const cell of cells) {
+    const cellCommands = createCommands(cell);
+    if (!cellCommands.length) {
+      continue;
+    }
     if (currentCommands.length && currentCommands.length + cellCommands.length > batchSize) {
       batches.push({
         commands: currentCommands,
@@ -1281,8 +1730,8 @@ function createXlsxToKompasTblModule() {
               context.dsl.step("set", "WidthFactor", {
                 valueArgument: "widthFactor",
               }),
-              context.dsl.step("call", "set_Italic", {
-                args: [context.dsl.arg("italic", "bool")],
+              context.dsl.step("set", "Italic", {
+                valueArgument: "italic",
               }),
             ],
           ),
@@ -1330,8 +1779,8 @@ function createXlsxToKompasTblModule() {
               context.dsl.step("set", "WidthFactor", {
                 valueArgument: "widthFactor",
               }),
-              context.dsl.step("call", "set_Italic", {
-                args: [context.dsl.arg("italic", "bool")],
+              context.dsl.step("set", "Italic", {
+                valueArgument: "italic",
               }),
             ],
           ),
@@ -1379,8 +1828,8 @@ function createXlsxToKompasTblModule() {
               context.dsl.step("set", "WidthFactor", {
                 valueArgument: "widthFactor",
               }),
-              context.dsl.step("call", "set_Italic", {
-                args: [context.dsl.arg("italic", "bool")],
+              context.dsl.step("set", "Italic", {
+                valueArgument: "italic",
               }),
             ],
           ),
@@ -1605,7 +2054,7 @@ function createXlsxToKompasTblModule() {
               }),
               context.dsl.step("queryInterface", "ITextItem"),
               context.dsl.step("queryInterface", "ITextFont"),
-              context.dsl.step("call", "get_Italic"),
+              context.dsl.step("get", "Italic"),
             ],
           ),
           "xlsx-to-kompas-tbl.table-cell-get-item-underline": context.dsl.command(
@@ -1751,6 +2200,26 @@ function createXlsxToKompasTblModule() {
               context.dsl.step("queryInterface", "IDrawingTable"),
               context.dsl.step("get", "Reference"),
             ],
+          ),
+          "xlsx-to-kompas-tbl.table-open-by-reference": context.dsl.command(
+            "kompas",
+            "application",
+            [
+              context.dsl.step("queryInterface", "IApplication"),
+              context.dsl.step("get", "ActiveDocument"),
+              context.dsl.step("get", "ViewsAndLayersManager"),
+              context.dsl.step("get", "Views"),
+              context.dsl.step("get", "ActiveView"),
+              context.dsl.step("queryInterface", "ISymbols2DContainer"),
+              context.dsl.step("get", "DrawingTables"),
+              context.dsl.step("index", "DrawingTable", {
+                args: [context.dsl.arg("tableReference", "int")],
+              }),
+              context.dsl.step("queryInterface", "IDrawingTable"),
+            ],
+            {
+              defaultArguments: KOMPAS_API7_ATTACHED_ARGUMENTS,
+            },
           ),
           "xlsx-to-kompas-tbl.table-set-position": context.dsl.command(
             "kompas",
@@ -1994,14 +2463,48 @@ function createXlsxToKompasTblModule() {
               context.dsl.step("call", "Open", {
                 args: [
                   context.dsl.arg("path", "path"),
-                  context.dsl.literal(false, "bool"),
                   context.dsl.literal(true, "bool"),
+                  context.dsl.literal(false, "bool"),
                 ],
               }),
             ],
             {
               defaultArguments: KOMPAS_API7_OPEN_ARGUMENTS,
             },
+          ),
+          "xlsx-to-kompas-tbl.document-set-active": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IKompasDocument2D"),
+              context.dsl.step("set", "Active", {
+                valueArgument: "active",
+              }),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.document-get-path": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IKompasDocument2D"),
+              context.dsl.step("get", "PathName"),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.document-get-active": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IKompasDocument2D"),
+              context.dsl.step("get", "Active"),
+            ],
+          ),
+          "xlsx-to-kompas-tbl.document-get-visible": context.dsl.command(
+            "kompas",
+            "handle",
+            [
+              context.dsl.step("queryInterface", "IKompasDocument2D"),
+              context.dsl.step("get", "Visible"),
+            ],
           ),
         },
         allowedTypes: [],
@@ -2017,12 +2520,20 @@ function createXlsxToKompasTblModule() {
         sheetName: "",
         matrix: [],
         cellMatrix: [],
+        effectiveCellMatrix: [],
+        effectiveCellStats: {
+          enabled: false,
+          adjustedCellCount: 0,
+          minScale: 1,
+          maxScale: 1,
+        },
         status: null,
         tempPath: "",
         tempPathLoaded: false,
         lastExport: null,
         lastBytes: null,
         autoFollowOutput: true,
+        autoFitText: savedLayout.autoFitText === true,
         layoutDriver: initialLayoutDriver,
         layout: reconcileLinkedLayout(savedLayout, 1, 1, initialLayoutDriver),
         pollTimer: null,
@@ -2081,6 +2592,14 @@ function createXlsxToKompasTblModule() {
               </div>
 
               <label class="field">
+                <span class="field-inline">
+                  <input id="xlsx-font-autofit" type="checkbox" ${state.autoFitText ? "checked" : ""}>
+                  <strong>auto-fit text to current cell size</strong>
+                </span>
+                <small class="field__hint">Scales font height before writing to KOMPAS. Turn it off to keep Excel sizes 1:1.</small>
+              </label>
+
+              <label class="field">
                 <span>output path (.tbl)</span>
                 <div class="field-inline">
                   <input id="xlsx-output-path" type="text" spellcheck="false" placeholder="%TEMP%\\kompas-pages\\table.tbl">
@@ -2132,6 +2651,7 @@ function createXlsxToKompasTblModule() {
         tableHeight: container.querySelector("#xlsx-table-height"),
         cellWidth: container.querySelector("#xlsx-cell-width"),
         cellHeight: container.querySelector("#xlsx-cell-height"),
+        autoFitText: container.querySelector("#xlsx-font-autofit"),
         outputPath: container.querySelector("#xlsx-output-path"),
         outputMode: container.querySelector("#xlsx-output-mode"),
         followButton: container.querySelector("#xlsx-follow-button"),
@@ -2150,6 +2670,7 @@ function createXlsxToKompasTblModule() {
         context.storage.set("layout", {
           ...state.layout,
           layoutDriver: state.layoutDriver,
+          autoFitText: state.autoFitText,
         });
       }
 
@@ -2157,11 +2678,26 @@ function createXlsxToKompasTblModule() {
         return getMatrixDimensions(state.matrix);
       }
 
+      function recomputeEffectiveCellMatrix() {
+        const result = autoFitCellMatrixToLayout(state.cellMatrix, state.layout, state.autoFitText);
+        state.effectiveCellMatrix = result.cellMatrix;
+        state.effectiveCellStats = result.stats;
+      }
+
+      function formatScale(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return "1";
+        }
+        return numeric.toFixed(2).replace(/\.?0+$/, "");
+      }
+
       function syncLayoutInputs() {
         refs.tableWidth.value = String(state.layout.tableWidthMm || 0);
         refs.tableHeight.value = String(state.layout.tableHeightMm || 0);
         refs.cellWidth.value = String(state.layout.cellWidthMm || 0);
         refs.cellHeight.value = String(state.layout.cellHeightMm || 0);
+        refs.autoFitText.checked = Boolean(state.autoFitText);
       }
 
       function renderPreview() {
@@ -2209,11 +2745,15 @@ function createXlsxToKompasTblModule() {
           refs.layoutSummary.textContent = "Размеры будут рассчитаны после загрузки файла.";
           return;
         }
-        const writeCount = collectFormattedCellWrites(state.cellMatrix).length;
+        const writeCount = collectFormattedCellWrites(state.effectiveCellMatrix).length;
+        const fitSummary = state.autoFitText
+          ? `text=auto-fit ${formatScale(state.effectiveCellStats.minScale)}..${formatScale(state.effectiveCellStats.maxScale)}x adjusted=${state.effectiveCellStats.adjustedCellCount}`
+          : "text=excel 1:1";
         refs.layoutSummary.textContent = [
           `cell=${formatMm(state.layout.cellWidthMm)} x ${formatMm(state.layout.cellHeightMm)} mm`,
           `table=${formatMm(state.layout.tableWidthMm)} x ${formatMm(state.layout.tableHeightMm)} mm`,
           `writes=${writeCount}/${rows * cols}`,
+          fitSummary,
         ].join(" | ");
       }
 
@@ -2420,6 +2960,7 @@ function createXlsxToKompasTblModule() {
           cols || 1,
           driver,
         );
+        recomputeEffectiveCellMatrix();
         persistLayout();
         renderAll();
       }
@@ -2559,6 +3100,40 @@ function createXlsxToKompasTblModule() {
         return tableHandleId;
       }
 
+      async function readTableReference(tableHandleId) {
+        const prepareReferenceExecution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.table-update",
+          { handleId: tableHandleId },
+          30000,
+        );
+        if (prepareReferenceExecution.result === false) {
+          throw new Error("KOMPAS returned Update=false before reading table reference.");
+        }
+        const tableReferenceExecution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.table-get-reference",
+          { handleId: tableHandleId },
+          15000,
+        );
+        const tableReference = coerceNumberLike(tableReferenceExecution.result);
+        if (!Number.isFinite(tableReference) || tableReference <= 0) {
+          context.logger.info("api5-table-reference", JSON.stringify(tableReferenceExecution.result));
+          throw new Error(`Invalid table reference: ${tableReferenceExecution.result}`);
+        }
+        return tableReference;
+      }
+
+      async function reopenTableHandleByReference(tableReference) {
+        const reopenExecution = await context.executeCommand(
+          "xlsx-to-kompas-tbl.table-open-by-reference",
+          {
+            tableReference,
+            refresh: true,
+          },
+          30000,
+        );
+        return requireHandleId(reopenExecution, "table-open-by-reference");
+      }
+
       function requireHandleId(execution, label) {
         const handleId = String(execution?.result?.handleId || "");
         if (!handleId) {
@@ -2594,8 +3169,12 @@ function createXlsxToKompasTblModule() {
           "api5-text-param",
         );
         await context.executeCommand("xlsx-to-kompas-tbl.api5-object-init", { handleId: textParamHandle }, 15000);
-        const lineArrayHandle = await createApi5DynamicArrayHandle(
-          API5_TEXT_LINE_ARRAY_TYPE,
+        const lineArrayHandle = requireHandleId(
+          await context.executeCommand(
+            "xlsx-to-kompas-tbl.api5-text-param-get-line-array",
+            { handleId: textParamHandle },
+            15000,
+          ),
           "api5-text-line-array",
         );
 
@@ -2605,8 +3184,12 @@ function createXlsxToKompasTblModule() {
             "api5-text-line-param",
           );
           await context.executeCommand("xlsx-to-kompas-tbl.api5-object-init", { handleId: lineHandle }, 15000);
-          const itemArrayHandle = await createApi5DynamicArrayHandle(
-            API5_TEXT_ITEM_ARRAY_TYPE,
+          const itemArrayHandle = requireHandleId(
+            await context.executeCommand(
+              "xlsx-to-kompas-tbl.api5-text-line-param-get-item-array",
+              { handleId: lineHandle },
+              15000,
+            ),
             "api5-text-item-array",
           );
 
@@ -2671,18 +3254,6 @@ function createXlsxToKompasTblModule() {
 
           expectApi5Success(
             (await context.executeCommand(
-              "xlsx-to-kompas-tbl.api5-text-line-param-set-item-array",
-              {
-                handleId: lineHandle,
-                itemArrayHandle,
-              },
-              15000,
-            )).result,
-            "api5-text-line-param-set-item-array",
-          );
-
-          expectApi5Success(
-            (await context.executeCommand(
               "xlsx-to-kompas-tbl.api5-dynamic-array-add-item",
               {
                 handleId: lineArrayHandle,
@@ -2694,51 +3265,29 @@ function createXlsxToKompasTblModule() {
             "api5-line-array-append",
           );
         }
-
-        expectApi5Success(
-          (await context.executeCommand(
-            "xlsx-to-kompas-tbl.api5-text-param-set-line-array",
-            {
-              handleId: textParamHandle,
-              lineArrayHandle,
-            },
-            15000,
-          )).result,
-          "api5-text-param-set-line-array",
-        );
         return textParamHandle;
       }
 
       async function populateTableHandle(tableHandleId, progressLabel) {
-        const writes = collectFormattedCellWrites(state.cellMatrix);
-        if (writes.length === 0) {
+        const activeCellMatrix = state.effectiveCellMatrix;
+        const writeCount = collectFormattedCellWrites(activeCellMatrix).length;
+        if (writeCount === 0) {
           refs.resultBox.textContent = `${progressLabel}: 0/0 cells`;
-          return;
+          return {
+            handleId: tableHandleId,
+            tableReference: null,
+          };
         }
 
-        const { cols } = getMatrixDimensions(state.cellMatrix);
+        const firstLineOnlyCellMatrix = createFirstLineOnlyCellMatrix(activeCellMatrix);
+        const additionalLinesOnlyCellMatrix = createAdditionalLinesOnlyCellMatrix(activeCellMatrix);
+        const firstLineWrites = collectFormattedCellWrites(firstLineOnlyCellMatrix);
+        const { cols } = getMatrixDimensions(firstLineOnlyCellMatrix);
         const api5DocumentHandle = requireHandleId(
           await context.executeCommand("xlsx-to-kompas-tbl.api5-active-document2d", {}, 15000),
           "api5-active-document2d",
         );
-        const prepareReferenceExecution = await context.executeCommand(
-          "xlsx-to-kompas-tbl.table-update",
-          { handleId: tableHandleId },
-          30000,
-        );
-        if (prepareReferenceExecution.result === false) {
-          throw new Error("KOMPAS returned Update=false before reading table reference.");
-        }
-        const tableReferenceExecution = await context.executeCommand(
-          "xlsx-to-kompas-tbl.table-get-reference",
-          { handleId: tableHandleId },
-          15000,
-        );
-        const tableReference = coerceNumberLike(tableReferenceExecution.result);
-        if (!Number.isFinite(tableReference) || tableReference <= 0) {
-          context.logger.info("api5-table-reference", JSON.stringify(tableReferenceExecution.result));
-          throw new Error(`Invalid table reference: ${tableReferenceExecution.result}`);
-        }
+        const tableReference = await readTableReference(tableHandleId);
 
         expectApi5Success(
           (await context.executeCommand(
@@ -2754,7 +3303,7 @@ function createXlsxToKompasTblModule() {
 
         let completedWrites = 0;
         try {
-          for (const cell of writes) {
+          for (const cell of firstLineWrites) {
             const textParamHandle = await createApi5TextParamHandle(cell);
             const cellNumber = toApi5CellNumber(cell.rowIndex, cell.columnIndex, cols);
             expectApi5Success(
@@ -2770,7 +3319,7 @@ function createXlsxToKompasTblModule() {
               "api5-document-set-table-cell-text",
             );
             completedWrites += 1;
-            refs.resultBox.textContent = `${progressLabel}: ${completedWrites}/${writes.length} cells`;
+            refs.resultBox.textContent = `${progressLabel}: ${completedWrites}/${writeCount} cells`;
           }
         } finally {
           expectApi5Success(
@@ -2785,36 +3334,76 @@ function createXlsxToKompasTblModule() {
           );
         }
 
-        for (const cell of writes) {
-          await context.executeCommand(
-            "xlsx-to-kompas-tbl.table-cell-set-one-line",
-            {
-              handleId: tableHandleId,
-              rowIndex: cell.rowIndex,
-              columnIndex: cell.columnIndex,
-              oneLine: Boolean(cell.oneLine),
+        const refreshedTableHandleId = await reopenTableHandleByReference(tableReference);
+        const baseBatches = createCommandBatchesFromCells(
+          firstLineOnlyCellMatrix,
+          createBaseFormattedCellCommands,
+          EXPORT_BATCH_SIZE,
+        );
+        const additionalLineBatches = createCommandBatchesFromCells(
+          additionalLinesOnlyCellMatrix,
+          createAdditionalLineCommands,
+          EXPORT_BATCH_SIZE,
+        );
+        const additionalLineStyleBatches = createCommandBatchesFromCells(
+          additionalLinesOnlyCellMatrix,
+          createAdditionalLineStyleCommands,
+          EXPORT_BATCH_SIZE,
+        );
+
+        for (const batch of baseBatches) {
+          const commands = batch.commands.map((command) => ({
+            ...command,
+            arguments: {
+              ...command.arguments,
+              handleId: refreshedTableHandleId,
             },
-            15000,
-          );
-          for (let lineIndex = 0; lineIndex < cell.lines.length; lineIndex += 1) {
-            await context.executeCommand(
-              "xlsx-to-kompas-tbl.table-cell-set-line-align",
-              {
-                handleId: tableHandleId,
-                rowIndex: cell.rowIndex,
-                columnIndex: cell.columnIndex,
-                lineIndex,
-                align: cell.alignCode,
-              },
-              15000,
-            );
-          }
+          }));
+          await context.executeBatchCommand(commands, {
+            reportVerbosity: "Compact",
+            stopOnError: true,
+          });
         }
+
+        for (const batch of additionalLineBatches) {
+          const commands = batch.commands.map((command) => ({
+            ...command,
+            arguments: {
+              ...command.arguments,
+              handleId: refreshedTableHandleId,
+            },
+          }));
+          await context.executeBatchCommand(commands, {
+            reportVerbosity: "Compact",
+            stopOnError: true,
+          });
+        }
+
+        for (const batch of additionalLineStyleBatches) {
+          const commands = batch.commands.map((command) => ({
+            ...command,
+            arguments: {
+              ...command.arguments,
+              handleId: refreshedTableHandleId,
+            },
+          }));
+          await context.executeBatchCommand(commands, {
+            reportVerbosity: "Compact",
+            stopOnError: true,
+          });
+        }
+
+        refs.resultBox.textContent = `${progressLabel}: ${writeCount}/${writeCount} cells`;
+        return {
+          handleId: refreshedTableHandleId,
+          tableReference,
+        };
       }
 
       async function materializeTableFileViaRuntime(outputPath, rows, cols, progressLabel) {
-        const tableHandleId = await createTableHandle(rows, cols);
-        await populateTableHandle(tableHandleId, progressLabel);
+        let tableHandleId = await createTableHandle(rows, cols);
+        const populateResult = await populateTableHandle(tableHandleId, progressLabel);
+        tableHandleId = populateResult.handleId;
         const updateExecution = await context.executeCommand(
           "xlsx-to-kompas-tbl.table-update",
           {
@@ -2864,6 +3453,7 @@ function createXlsxToKompasTblModule() {
         let anchorPoint;
         let anchorSource = "frame-center";
         let anchorFallbackReason = "";
+        const tableCountBefore = await readViewTableCount();
         try {
           anchorPoint = await readActiveFrameCenterPoint();
         } catch (error) {
@@ -2874,51 +3464,56 @@ function createXlsxToKompasTblModule() {
         }
         const targetX = anchorSource === "frame-center" ? anchorPoint.x : anchorPoint.x + 20;
         const targetY = anchorSource === "frame-center" ? anchorPoint.y : anchorPoint.y + 20;
-        const inlinePath = buildInlineTempOutputPath({
-          fileName: state.fileName || "table.xlsx",
-          tempPath: state.tempPath,
-        });
-        const inlineDirectory = dirname(inlinePath);
-        if (!inlineDirectory) {
-          throw new Error("Inline temp directory is empty.");
-        }
-        await context.ensureDirectory(inlineDirectory);
-        if (await context.fileExists(inlinePath)) {
-          await context.deleteFile(inlinePath);
-        }
-        await materializeTableFileViaRuntime(inlinePath, rows, cols, "Inline");
-        const insertResult = await insertTableViaRuntime(inlinePath);
-        const tableHandleId = insertResult.tableHandleId;
-        if (!tableHandleId) {
-          throw new Error("KOMPAS did not return a drawing table handle after inline insert.");
-        }
-        const positionExecution = await context.executeCommand(
-          "xlsx-to-kompas-tbl.table-set-position",
-          {
-            handleId: tableHandleId,
-            x: targetX,
-            y: targetY,
-          },
-          30000,
-        );
-        if (positionExecution.result === false) {
-          throw new Error("KOMPAS returned Update=false while positioning Inline table.");
-        }
-        const debugAfterUpdate = await readTableDebug(tableHandleId);
+        let tableHandleId = "";
+        let tableReference = null;
+        try {
+          tableHandleId = await createTableHandle(rows, cols);
+          const populateResult = await populateTableHandle(tableHandleId, "Inline");
+          tableHandleId = populateResult.handleId;
+          tableReference = populateResult.tableReference;
+          const positionExecution = await context.executeCommand(
+            "xlsx-to-kompas-tbl.table-set-position",
+            {
+              handleId: tableHandleId,
+              x: targetX,
+              y: targetY,
+            },
+            30000,
+          );
+          if (positionExecution.result === false) {
+            throw new Error("KOMPAS returned Update=false while positioning Inline table.");
+          }
+          const debugAfterUpdate = await readTableDebug(tableHandleId);
+          const tableCountAfter = await readViewTableCount();
 
-        return {
-          outputPath: inlinePath,
-          tableHandleId,
-          tableCountBefore: insertResult.tableCountBefore,
-          tableCountAfter: insertResult.tableCountAfter,
-          anchorPoint,
-          anchorSource,
-          anchorFallbackReason,
-          targetPoint: { x: targetX, y: targetY },
-          debugAfterUpdate,
-          rows,
-          cols,
-        };
+          return {
+            outputMode: "direct",
+            tableHandleId,
+            tableReference,
+            tableCountBefore,
+            tableCountAfter,
+            anchorPoint,
+            anchorSource,
+            anchorFallbackReason,
+            targetPoint: { x: targetX, y: targetY },
+            debugAfterUpdate,
+            rows,
+            cols,
+          };
+        } catch (error) {
+          if (tableHandleId) {
+            try {
+              await context.executeCommand(
+                "xlsx-to-kompas-tbl.table-delete",
+                { handleId: tableHandleId },
+                30000,
+              );
+            } catch (deleteError) {
+              context.logger.error("inline-cleanup", String(deleteError.message || deleteError));
+            }
+          }
+          throw error;
+        }
       }
 
       async function exportTable() {
@@ -2975,9 +3570,11 @@ function createXlsxToKompasTblModule() {
         try {
           await runWithStatusPollingSuspended(async () => {
             const result = await inlineTableViaRuntime(rows, cols);
-            refs.resultBox.textContent = `Inline | ${result.outputPath} | anchor=${result.anchorSource} (${result.anchorPoint.x},${result.anchorPoint.y}) target=(${result.targetPoint.x},${result.targetPoint.y}) | temp=${result.debugAfterUpdate.temp} valid=${result.debugAfterUpdate.valid} x=${result.debugAfterUpdate.x} y=${result.debugAfterUpdate.y} | ${result.tableCountBefore} -> ${result.tableCountAfter}`;
+            refs.resultBox.textContent = `Inline | no .tbl | handle=${result.tableHandleId} ref=${result.tableReference} | anchor=${result.anchorSource} (${result.anchorPoint.x},${result.anchorPoint.y}) target=(${result.targetPoint.x},${result.targetPoint.y}) | temp=${result.debugAfterUpdate.temp} valid=${result.debugAfterUpdate.valid} x=${result.debugAfterUpdate.x} y=${result.debugAfterUpdate.y} | ${result.tableCountBefore} -> ${result.tableCountAfter}`;
             context.logger.info("inline", JSON.stringify({
-              outputPath: result.outputPath,
+              outputMode: result.outputMode,
+              handleId: result.tableHandleId,
+              reference: result.tableReference,
               before: result.tableCountBefore,
               after: result.tableCountAfter,
               temp: result.debugAfterUpdate.temp,
@@ -3061,6 +3658,13 @@ function createXlsxToKompasTblModule() {
         state.sheetName = "";
         state.matrix = [];
         state.cellMatrix = [];
+        state.effectiveCellMatrix = [];
+        state.effectiveCellStats = {
+          enabled: state.autoFitText,
+          adjustedCellCount: 0,
+          minScale: 1,
+          maxScale: 1,
+        };
         state.lastExport = null;
         state.lastBytes = null;
         state.autoFollowOutput = true;
@@ -3084,6 +3688,7 @@ function createXlsxToKompasTblModule() {
         state.autoFollowOutput = true;
         const { rows, cols } = currentDimensions();
         state.layout = reconcileLinkedLayout(state.layout, rows || 1, cols || 1, state.layoutDriver);
+        recomputeEffectiveCellMatrix();
         persistLayout();
         refs.resultBox.textContent = "Matrix loaded. Export or Inline is ready.";
         context.logger.info("xlsx-parsed", `${state.fileName} ${formatSize(rows, cols)}`);
@@ -3144,6 +3749,13 @@ function createXlsxToKompasTblModule() {
         renderAll();
       });
 
+      refs.autoFitText.addEventListener("change", () => {
+        state.autoFitText = refs.autoFitText.checked;
+        recomputeEffectiveCellMatrix();
+        persistLayout();
+        renderAll();
+      });
+
       refs.exportButton.addEventListener("click", () => {
         exportTable().catch((error) => {
           refs.resultBox.textContent = String(error.message || error);
@@ -3180,6 +3792,8 @@ function createXlsxToKompasTblModule() {
       bindLayoutInput(refs.tableHeight, "tableHeightMm", "table");
       bindLayoutInput(refs.cellWidth, "cellWidthMm", "cell");
       bindLayoutInput(refs.cellHeight, "cellHeightMm", "cell");
+
+      recomputeEffectiveCellMatrix();
 
       const onRuntimeLoaded = () => {
         ensureTempPathLoaded(true)
@@ -3235,6 +3849,7 @@ function createXlsxToKompasTblModule() {
 export {
   DEFAULT_LAYOUT,
   EXPORT_BATCH_SIZE,
+  autoFitCellMatrixToLayout,
   buildWorkbookStyleContext,
   buildAutoOutputPath,
   buildInlineTempOutputPath,

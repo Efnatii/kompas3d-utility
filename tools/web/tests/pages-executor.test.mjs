@@ -12,6 +12,7 @@ import {
   serializeRuntimeLoadSettings,
 } from "../../../assets/executor-shell.js";
 import {
+  autoFitCellMatrixToLayout,
   buildWorkbookStyleContext,
   buildAutoOutputPath,
   buildInlineTempOutputPath,
@@ -643,6 +644,264 @@ test("rich XLSX payload keeps run-level formatting and multiline structure", () 
   assert.equal(payload.lines[1].items[0].italic, true);
   assert.equal(payload.lines[1].items[0].underline, true);
   assert.equal(payload.lines[1].items[0].color, 0x0000FF);
+});
+
+test("plain styled multiline XLSX payload keeps cell font, wrap and left alignment", () => {
+  const stylesXml = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><name val="Calibri" /><color rgb="00000000" /><sz val="11" /></font><font><name val="Courier New" /><color rgb="00666666" /><sz val="10" /></font></fonts><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1" applyAlignment="1" xfId="0"><alignment horizontal="left" wrapText="1" /></xf></cellXfs></styleSheet>`;
+  const worksheetXml = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" s="1" t="inlineStr"><is><t>Mono wrap&#10;Second line&#10;Third</t></is></c></row></sheetData></worksheet>`;
+  const workbook = {
+    Themes: { themeElements: { clrScheme: [] } },
+    files: {
+      "xl/styles.xml": {
+        content: new TextEncoder().encode(stylesXml),
+      },
+    },
+  };
+  const styleContext = buildWorkbookStyleContext(workbook);
+  const cellMeta = parseWorksheetCellMeta(worksheetXml).A1;
+  const payload = createCellTransferPayload({
+    address: "A1",
+    rowIndex: 0,
+    columnIndex: 0,
+    text: "Mono wrap\nSecond line\nThird",
+    styleIndex: cellMeta.styleIndex,
+    richTextXml: cellMeta.inlineRichXml,
+    styleContext,
+    sharedStringEntry: null,
+  });
+
+  assert.equal(payload.alignCode, 0);
+  assert.equal(payload.oneLine, false);
+  assert.equal(payload.lines.length, 3);
+  assert.deepEqual(
+    payload.lines.map((line) => line.items[0].text),
+    ["Mono wrap", "Second line", "Third"],
+  );
+  assert.equal(payload.lines[0].items[0].fontName, "Courier New");
+  assert.equal(payload.lines[0].items[0].heightMm, 3.5278);
+  assert.equal(payload.lines[0].items[0].color, 0x666666);
+});
+
+test("rich XLSX payload keeps multiple fonts on right-aligned wrapped text", () => {
+  const stylesXml = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><name val="Calibri" /><color rgb="00000000" /><sz val="11" /></font></fonts><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /><xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="right" wrapText="1" /></xf></cellXfs></styleSheet>`;
+  const worksheetXml = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="B2" s="1" t="inlineStr"><is><r><rPr><rFont val="Times New Roman" /><sz val="16" /><color rgb="0000FF" /></rPr><t>Times</t></r><r><t xml:space="preserve"> / </t></r><r><rPr><rFont val="Courier New" /><b val="1" /><u val="single" /><sz val="11" /><color rgb="800000" /></rPr><t>Courier</t></r><r><rPr><rFont val="Arial" /><i val="1" /><sz val="9" /><color rgb="008000" /></rPr><t>&#10;Tail</t></r></is></c></row></sheetData></worksheet>`;
+  const workbook = {
+    Themes: { themeElements: { clrScheme: [] } },
+    files: {
+      "xl/styles.xml": {
+        content: new TextEncoder().encode(stylesXml),
+      },
+    },
+  };
+  const styleContext = buildWorkbookStyleContext(workbook);
+  const cellMeta = parseWorksheetCellMeta(worksheetXml).B2;
+  const payload = createCellTransferPayload({
+    address: "B2",
+    rowIndex: 1,
+    columnIndex: 1,
+    text: "Times / Courier\nTail",
+    styleIndex: cellMeta.styleIndex,
+    richTextXml: cellMeta.inlineRichXml,
+    styleContext,
+    sharedStringEntry: null,
+  });
+
+  assert.equal(payload.alignCode, 2);
+  assert.equal(payload.oneLine, false);
+  assert.equal(payload.lines.length, 2);
+  assert.deepEqual(
+    payload.lines[0].items.map((item) => item.text),
+    ["Times", " / ", "Courier"],
+  );
+  assert.equal(payload.lines[0].items[0].fontName, "Times New Roman");
+  assert.equal(payload.lines[0].items[0].heightMm, 5.6444);
+  assert.equal(payload.lines[0].items[0].color, 0x0000FF);
+  assert.equal(payload.lines[0].items[2].fontName, "Courier New");
+  assert.equal(payload.lines[0].items[2].bold, true);
+  assert.equal(payload.lines[0].items[2].underline, true);
+  assert.equal(payload.lines[0].items[2].color, 0x800000);
+  assert.equal(payload.lines[1].items[0].fontName, "Arial");
+  assert.equal(payload.lines[1].items[0].italic, true);
+  assert.equal(payload.lines[1].items[0].color, 0x008000);
+});
+
+test("wrapText keeps oneLine disabled even for a single styled line", () => {
+  const stylesXml = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><name val="Calibri" /><color rgb="00000000" /><sz val="11" /></font><font><name val="Tahoma" /><color rgb="00800080" /><sz val="11" /><u val="single" /></font></fonts><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1" applyAlignment="1" xfId="0"><alignment horizontal="left" wrapText="1" /></xf></cellXfs></styleSheet>`;
+  const worksheetXml = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="C2" s="1" t="inlineStr"><is><t>Wrap flag only</t></is></c></row></sheetData></worksheet>`;
+  const workbook = {
+    Themes: { themeElements: { clrScheme: [] } },
+    files: {
+      "xl/styles.xml": {
+        content: new TextEncoder().encode(stylesXml),
+      },
+    },
+  };
+  const styleContext = buildWorkbookStyleContext(workbook);
+  const cellMeta = parseWorksheetCellMeta(worksheetXml).C2;
+  const payload = createCellTransferPayload({
+    address: "C2",
+    rowIndex: 1,
+    columnIndex: 2,
+    text: "Wrap flag only",
+    styleIndex: cellMeta.styleIndex,
+    richTextXml: cellMeta.inlineRichXml,
+    styleContext,
+    sharedStringEntry: null,
+  });
+
+  assert.equal(payload.alignCode, 0);
+  assert.equal(payload.oneLine, false);
+  assert.equal(payload.lines.length, 1);
+  assert.equal(payload.lines[0].items[0].fontName, "Tahoma");
+  assert.equal(payload.lines[0].items[0].underline, true);
+  assert.equal(payload.lines[0].items[0].color, 0x800080);
+});
+
+test("indexed palette font colors resolve from styles.xml", () => {
+  const stylesXml = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><colors><indexedColors><rgbColor rgb="000000"/><rgbColor rgb="FFFFFF"/><rgbColor rgb="FF0000"/><rgbColor rgb="00AA00"/></indexedColors></colors><fonts count="2"><font><name val="Calibri" /><color rgb="00000000" /><sz val="11" /></font><font><name val="Consolas" /><color indexed="2" /><sz val="10" /><b val="1" /></font></fonts><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1" applyAlignment="1" xfId="0"><alignment horizontal="right" wrapText="0" /></xf></cellXfs></styleSheet>`;
+  const worksheetXml = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="E2" s="1" t="inlineStr"><is><t>Code 12345</t></is></c></row></sheetData></worksheet>`;
+  const workbook = {
+    Themes: { themeElements: { clrScheme: [] } },
+    files: {
+      "xl/styles.xml": {
+        content: new TextEncoder().encode(stylesXml),
+      },
+    },
+  };
+  const styleContext = buildWorkbookStyleContext(workbook);
+  const cellMeta = parseWorksheetCellMeta(worksheetXml).E2;
+  const payload = createCellTransferPayload({
+    address: "E2",
+    rowIndex: 1,
+    columnIndex: 4,
+    text: "Code 12345",
+    styleIndex: cellMeta.styleIndex,
+    richTextXml: cellMeta.inlineRichXml,
+    styleContext,
+    sharedStringEntry: null,
+  });
+
+  assert.equal(payload.alignCode, 2);
+  assert.equal(payload.oneLine, true);
+  assert.equal(payload.lines[0].items[0].fontName, "Consolas");
+  assert.equal(payload.lines[0].items[0].bold, true);
+  assert.equal(payload.lines[0].items[0].color, 0xFF0000);
+});
+
+test("auto font color falls back to black and preserved spaces survive rich text parsing", () => {
+  const stylesXml = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><name val="Calibri" /><color auto="1" /><sz val="11" /></font></fonts><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /><xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="left" wrapText="0" /></xf></cellXfs></styleSheet>`;
+  const worksheetXml = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="B4" s="1" t="inlineStr"><is><r><rPr><rFont val="Arial" /><sz val="11" /><color auto="1" /></rPr><t xml:space="preserve">A  </t></r><r><rPr><rFont val="Consolas" /><sz val="11" /><b val="1" /><color rgb="00FF6600" /></rPr><t xml:space="preserve">B  </t></r><r><rPr><rFont val="Arial" /><sz val="11" /><color auto="1" /></rPr><t>C</t></r></is></c></row></sheetData></worksheet>`;
+  const workbook = {
+    Themes: { themeElements: { clrScheme: [] } },
+    files: {
+      "xl/styles.xml": {
+        content: new TextEncoder().encode(stylesXml),
+      },
+    },
+  };
+  const styleContext = buildWorkbookStyleContext(workbook);
+  const cellMeta = parseWorksheetCellMeta(worksheetXml).B4;
+  const payload = createCellTransferPayload({
+    address: "B4",
+    rowIndex: 3,
+    columnIndex: 1,
+    text: "A  B  C",
+    styleIndex: cellMeta.styleIndex,
+    richTextXml: cellMeta.inlineRichXml,
+    styleContext,
+    sharedStringEntry: null,
+  });
+
+  assert.equal(payload.oneLine, true);
+  assert.deepEqual(
+    payload.lines[0].items.map((item) => item.text),
+    ["A  ", "B  ", "C"],
+  );
+  assert.equal(payload.lines[0].items[0].color, 0x000000);
+  assert.equal(payload.lines[0].items[1].fontName, "Consolas");
+  assert.equal(payload.lines[0].items[1].bold, true);
+  assert.equal(payload.lines[0].items[1].color, 0xFF6600);
+});
+
+test("auto-fit shrinks formatted content for a tight cell", () => {
+  const sourceCell = {
+    address: "A1",
+    rowIndex: 0,
+    columnIndex: 0,
+    text: "Long title",
+    horizontal: "center",
+    alignCode: 1,
+    wrapText: false,
+    oneLine: true,
+    hasContent: true,
+    lines: [
+      {
+        items: [
+          {
+            text: "Long title",
+            fontName: "Arial",
+            heightMm: 6,
+            bold: true,
+            italic: false,
+            underline: false,
+            color: 0,
+            widthFactor: 1,
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = autoFitCellMatrixToLayout([[sourceCell]], {
+    cellWidthMm: 12,
+    cellHeightMm: 4,
+  }, true);
+
+  assert.equal(result.stats.enabled, true);
+  assert.equal(result.stats.adjustedCellCount, 1);
+  assert.ok(result.stats.minScale < 1);
+  assert.ok(result.cellMatrix[0][0].lines[0].items[0].heightMm < sourceCell.lines[0].items[0].heightMm);
+  assert.equal(sourceCell.lines[0].items[0].heightMm, 6);
+});
+
+test("auto-fit grows formatted content when the cell is spacious", () => {
+  const sourceCell = {
+    address: "B2",
+    rowIndex: 1,
+    columnIndex: 1,
+    text: "OK",
+    horizontal: "left",
+    alignCode: 0,
+    wrapText: false,
+    oneLine: true,
+    hasContent: true,
+    lines: [
+      {
+        items: [
+          {
+            text: "OK",
+            fontName: "Calibri",
+            heightMm: 2,
+            bold: false,
+            italic: false,
+            underline: false,
+            color: 0,
+            widthFactor: 1,
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = autoFitCellMatrixToLayout([[sourceCell]], {
+    cellWidthMm: 30,
+    cellHeightMm: 12,
+  }, true);
+
+  assert.equal(result.stats.enabled, true);
+  assert.equal(result.stats.adjustedCellCount, 1);
+  assert.ok(result.stats.maxScale > 1);
+  assert.ok(result.cellMatrix[0][0].lines[0].items[0].heightMm > sourceCell.lines[0].items[0].heightMm);
 });
 
 test("formatted cell batching emits native line and item commands", () => {
