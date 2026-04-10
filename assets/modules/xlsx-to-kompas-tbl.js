@@ -8,13 +8,17 @@ const DEFAULT_LAYOUT = {
 };
 
 const EXPORT_BATCH_SIZE = 200;
-const AUTO_FIT_MIN_SCALE = 0.45;
+const AUTO_FIT_MIN_SCALE = 0.3;
 const AUTO_FIT_MAX_SCALE = 1.8;
 const AUTO_FIT_WIDTH_PADDING_MM = 1.2;
 const AUTO_FIT_HEIGHT_PADDING_MM = 1.0;
 const AUTO_FIT_LINE_HEIGHT_FACTOR = 1.2;
 const AUTO_FIT_SCALE_EPSILON = 0.03;
 const AUTO_FIT_MIN_HEIGHT_MM = 0.8;
+const AUTO_FIT_BINARY_SEARCH_STEPS = 14;
+const AUTO_FIT_LAYOUT_EPSILON_MM = 0.05;
+const AUTO_FIT_WIDTH_SAFETY_FACTOR = 1.2;
+const AUTO_FIT_HEIGHT_SAFETY_FACTOR = 1.08;
 const API5_STRUCT_TYPE_PARAGRAPH_PARAM = 27;
 const API5_STRUCT_TYPE_TEXT_PARAM = 28;
 const API5_STRUCT_TYPE_TEXT_LINE_PARAM = 29;
@@ -775,17 +779,18 @@ function estimateCharacterWidthUnits(character) {
   return 0.58;
 }
 
-function estimateItemWidthMm(item) {
-  const text = String(item?.text ?? "");
+function estimateItemWidthMm(item, overrides = {}) {
+  const text = String(overrides?.text ?? item?.text ?? "");
   if (!text) {
     return 0;
   }
+  const heightMm = Number(overrides?.heightMm ?? item?.heightMm) || pointsToMillimeters(DEFAULT_FONT_SIZE_PT);
   const fontFactor = getFontWidthFactor(item?.fontName);
   const widthFactor = Number(item?.widthFactor) || 1;
   const boldFactor = item?.bold ? 1.04 : 1;
   const italicFactor = item?.italic ? 1.02 : 1;
   const units = [...text].reduce((total, character) => total + estimateCharacterWidthUnits(character), 0);
-  return units * (Number(item?.heightMm) || pointsToMillimeters(DEFAULT_FONT_SIZE_PT)) * fontFactor * widthFactor * boldFactor * italicFactor;
+  return units * heightMm * fontFactor * widthFactor * boldFactor * italicFactor;
 }
 
 function estimateLineWidthMm(line) {
@@ -803,25 +808,196 @@ function estimateLineHeightMm(line) {
     : pointsToMillimeters(DEFAULT_FONT_SIZE_PT) * AUTO_FIT_LINE_HEIGHT_FACTOR;
 }
 
+function getAutoFitLayoutBounds(layout) {
+  return {
+    availableWidthMm: Math.max(1, (Number(layout?.cellWidthMm) || DEFAULT_LAYOUT.cellWidthMm) - AUTO_FIT_WIDTH_PADDING_MM),
+    availableHeightMm: Math.max(1, (Number(layout?.cellHeightMm) || DEFAULT_LAYOUT.cellHeightMm) - AUTO_FIT_HEIGHT_PADDING_MM),
+  };
+}
+
+function getScaledItemHeightMm(item, scale) {
+  return Math.max(
+    AUTO_FIT_MIN_HEIGHT_MM,
+    roundLayoutValue((Number(item?.heightMm) || pointsToMillimeters(DEFAULT_FONT_SIZE_PT)) * scale),
+  );
+}
+
+function estimateScaledLineWidthMm(line, scale) {
+  return Array.isArray(line?.items)
+    ? line.items.reduce((total, item) => total + estimateItemWidthMm(item, {
+      heightMm: getScaledItemHeightMm(item, scale),
+    }), 0)
+    : 0;
+}
+
+function estimateScaledLineHeightMm(line, scale) {
+  const maxHeight = Array.isArray(line?.items)
+    ? line.items.reduce((current, item) => Math.max(current, getScaledItemHeightMm(item, scale)), 0)
+    : 0;
+  return maxHeight > 0
+    ? maxHeight * AUTO_FIT_LINE_HEIGHT_FACTOR
+    : pointsToMillimeters(DEFAULT_FONT_SIZE_PT) * AUTO_FIT_LINE_HEIGHT_FACTOR;
+}
+
+function finalizeWrappedVisualLine(metrics, widthMm, maxHeightMm) {
+  metrics.push({
+    widthMm,
+    heightMm: maxHeightMm > 0
+      ? maxHeightMm * AUTO_FIT_LINE_HEIGHT_FACTOR
+      : pointsToMillimeters(DEFAULT_FONT_SIZE_PT) * AUTO_FIT_LINE_HEIGHT_FACTOR,
+  });
+}
+
+function estimateWrappedLineMetrics(line, availableWidthMm, scale) {
+  if (!Array.isArray(line?.items) || !line.items.length) {
+    return [{
+      widthMm: 0,
+      heightMm: pointsToMillimeters(DEFAULT_FONT_SIZE_PT) * AUTO_FIT_LINE_HEIGHT_FACTOR,
+    }];
+  }
+
+  const metrics = [];
+  let currentWidthMm = 0;
+  let currentMaxHeightMm = 0;
+  let hasVisibleContent = false;
+
+  function pushSegment(segmentText, item, heightMm) {
+    if (!segmentText) {
+      return;
+    }
+    const segmentWidthMm = estimateItemWidthMm(item, {
+      text: segmentText,
+      heightMm,
+    });
+    currentWidthMm += segmentWidthMm;
+    currentMaxHeightMm = Math.max(currentMaxHeightMm, heightMm);
+    hasVisibleContent = true;
+  }
+
+  function commitLine() {
+    finalizeWrappedVisualLine(metrics, currentWidthMm, currentMaxHeightMm);
+    currentWidthMm = 0;
+    currentMaxHeightMm = 0;
+    hasVisibleContent = false;
+  }
+
+  function appendLongTokenByCharacters(tokenText, item, heightMm) {
+    for (const character of [...tokenText]) {
+      const characterWidthMm = estimateItemWidthMm(item, {
+        text: character,
+        heightMm,
+      });
+      if (hasVisibleContent && currentWidthMm + characterWidthMm > availableWidthMm) {
+        commitLine();
+      }
+      pushSegment(character, item, heightMm);
+    }
+  }
+
+  for (const item of line.items) {
+    const tokenHeightMm = getScaledItemHeightMm(item, scale);
+    const chunks = String(item?.text ?? "").split(/(\s+)/);
+    for (const chunk of chunks) {
+      if (!chunk) {
+        continue;
+      }
+      const whitespaceOnly = /^\s+$/.test(chunk);
+      if (whitespaceOnly && !hasVisibleContent) {
+        continue;
+      }
+
+      const chunkWidthMm = estimateItemWidthMm(item, {
+        text: chunk,
+        heightMm: tokenHeightMm,
+      });
+
+      if (whitespaceOnly) {
+        if (currentWidthMm + chunkWidthMm <= availableWidthMm) {
+          pushSegment(chunk, item, tokenHeightMm);
+        } else if (hasVisibleContent) {
+          commitLine();
+        }
+        continue;
+      }
+
+      if (chunkWidthMm <= availableWidthMm) {
+        if (hasVisibleContent && currentWidthMm + chunkWidthMm > availableWidthMm) {
+          commitLine();
+        }
+        pushSegment(chunk, item, tokenHeightMm);
+        continue;
+      }
+
+      appendLongTokenByCharacters(chunk, item, tokenHeightMm);
+    }
+  }
+
+  if (hasVisibleContent || !metrics.length) {
+    commitLine();
+  }
+
+  return metrics;
+}
+
+function estimateCellContentMetrics(cell, layout, scale) {
+  const { availableWidthMm } = getAutoFitLayoutBounds(layout);
+  let widestLineMm = 0;
+  let totalHeightMm = 0;
+
+  for (const line of cell.lines) {
+    const visualLines = cell.wrapText
+      ? estimateWrappedLineMetrics(line, availableWidthMm, scale)
+      : [{
+        widthMm: estimateScaledLineWidthMm(line, scale),
+        heightMm: estimateScaledLineHeightMm(line, scale),
+      }];
+    for (const visualLine of visualLines) {
+      widestLineMm = Math.max(widestLineMm, Number(visualLine?.widthMm) || 0);
+      totalHeightMm += Number(visualLine?.heightMm) || 0;
+    }
+  }
+
+  return {
+    widthMm: Number((widestLineMm * AUTO_FIT_WIDTH_SAFETY_FACTOR).toFixed(4)),
+    heightMm: Number((totalHeightMm * AUTO_FIT_HEIGHT_SAFETY_FACTOR).toFixed(4)),
+  };
+}
+
 function computeCellAutoFitScale(cell, layout) {
   if (!cell?.hasContent || !Array.isArray(cell.lines) || !cell.lines.length) {
     return 1;
   }
-  const availableWidth = Math.max(1, (Number(layout?.cellWidthMm) || DEFAULT_LAYOUT.cellWidthMm) - AUTO_FIT_WIDTH_PADDING_MM);
-  const availableHeight = Math.max(1, (Number(layout?.cellHeightMm) || DEFAULT_LAYOUT.cellHeightMm) - AUTO_FIT_HEIGHT_PADDING_MM);
-  const widestLine = cell.lines.reduce((maxWidth, line) => Math.max(maxWidth, estimateLineWidthMm(line)), 0);
-  const totalHeight = cell.lines.reduce((total, line) => total + estimateLineHeightMm(line), 0);
-  const widthScale = widestLine > 0 ? availableWidth / widestLine : 1;
-  const heightScale = totalHeight > 0 ? availableHeight / totalHeight : 1;
-  let scale = Math.min(widthScale, heightScale);
-  if (!Number.isFinite(scale) || scale <= 0) {
-    scale = 1;
+
+  const bounds = getAutoFitLayoutBounds(layout);
+  const minScale = AUTO_FIT_MIN_SCALE;
+  const maxScale = AUTO_FIT_MAX_SCALE;
+  const fitsWithinLayout = (scale) => {
+    const metrics = estimateCellContentMetrics(cell, layout, scale);
+    return metrics.widthMm <= bounds.availableWidthMm + AUTO_FIT_LAYOUT_EPSILON_MM
+      && metrics.heightMm <= bounds.availableHeightMm + AUTO_FIT_LAYOUT_EPSILON_MM;
+  };
+
+  if (!fitsWithinLayout(minScale)) {
+    return Number(minScale.toFixed(4));
   }
-  scale = Math.min(AUTO_FIT_MAX_SCALE, Math.max(AUTO_FIT_MIN_SCALE, scale));
-  if (Math.abs(scale - 1) <= AUTO_FIT_SCALE_EPSILON) {
+
+  let low = minScale;
+  let high = maxScale;
+  let best = minScale;
+  for (let step = 0; step < AUTO_FIT_BINARY_SEARCH_STEPS; step += 1) {
+    const mid = (low + high) / 2;
+    if (fitsWithinLayout(mid)) {
+      best = mid;
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+
+  if (Math.abs(best - 1) <= AUTO_FIT_SCALE_EPSILON) {
     return 1;
   }
-  return Number(scale.toFixed(4));
+  return Number(best.toFixed(4));
 }
 
 function scaleCellToLayout(cell, layout) {
@@ -838,10 +1014,7 @@ function scaleCellToLayout(cell, layout) {
       lines: cell.lines.map((line) => ({
         ...line,
         items: line.items.map((item) => cloneTransferItem(item, {
-          heightMm: Math.max(
-            AUTO_FIT_MIN_HEIGHT_MM,
-            roundLayoutValue((Number(item?.heightMm) || pointsToMillimeters(DEFAULT_FONT_SIZE_PT)) * scale),
-          ),
+          heightMm: getScaledItemHeightMm(item, scale),
         })),
       })),
     }),
@@ -2591,12 +2764,19 @@ function createXlsxToKompasTblModule() {
                 </label>
               </div>
 
-              <label class="field">
-                <span class="field-inline">
-                  <input id="xlsx-font-autofit" type="checkbox" ${state.autoFitText ? "checked" : ""}>
-                  <strong>auto-fit text to current cell size</strong>
+              <label class="toggle-field" for="xlsx-font-autofit">
+                <span class="toggle-field__body">
+                  <input
+                    class="toggle-field__input"
+                    id="xlsx-font-autofit"
+                    type="checkbox"
+                    ${state.autoFitText ? "checked" : ""}
+                  >
+                  <span class="toggle-field__copy">
+                    <strong>auto-fit text to current cell size</strong>
+                    <small>Scales font height before writing to KOMPAS. Turn it off to keep Excel sizes 1:1.</small>
+                  </span>
                 </span>
-                <small class="field__hint">Scales font height before writing to KOMPAS. Turn it off to keep Excel sizes 1:1.</small>
               </label>
 
               <label class="field">

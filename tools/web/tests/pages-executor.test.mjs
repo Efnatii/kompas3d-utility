@@ -864,6 +864,48 @@ test("auto-fit shrinks formatted content for a tight cell", () => {
   assert.equal(sourceCell.lines[0].items[0].heightMm, 6);
 });
 
+test("auto-fit aggressively shrinks wrapped text for a narrow cell", () => {
+  const sourceCell = {
+    address: "A1",
+    rowIndex: 0,
+    columnIndex: 0,
+    text: "Very long wrapped sentence for a narrow cell",
+    horizontal: "left",
+    alignCode: 0,
+    wrapText: true,
+    oneLine: false,
+    hasContent: true,
+    lines: [
+      {
+        items: [
+          {
+            text: "Very long wrapped sentence for a narrow cell",
+            fontName: "Arial",
+            heightMm: 4.2,
+            bold: false,
+            italic: false,
+            underline: false,
+            color: 0,
+            widthFactor: 1,
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = autoFitCellMatrixToLayout([[sourceCell]], {
+    cellWidthMm: 12,
+    cellHeightMm: 8,
+  }, true);
+
+  assert.equal(result.stats.enabled, true);
+  assert.equal(result.stats.adjustedCellCount, 1);
+  assert.ok(result.stats.minScale < 0.35);
+  assert.ok(result.cellMatrix[0][0].lines[0].items[0].heightMm <= 1.4);
+  assert.equal(result.cellMatrix[0][0].wrapText, true);
+  assert.equal(sourceCell.lines[0].items[0].heightMm, 4.2);
+});
+
 test("auto-fit grows formatted content when the cell is spacious", () => {
   const sourceCell = {
     address: "B2",

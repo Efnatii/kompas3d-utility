@@ -279,6 +279,112 @@ textarea:focus-visible {
   color: var(--muted);
 }
 
+.toggle-field {
+  display: block;
+  cursor: pointer;
+}
+
+.toggle-field__body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  background:
+    linear-gradient(180deg, #fcfcfc, #f0f0f0),
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.02) 0,
+      rgba(0, 0, 0, 0.02) 1px,
+      transparent 1px,
+      transparent 18px
+    );
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.toggle-field:hover .toggle-field__body {
+  border-color: var(--line);
+  background:
+    linear-gradient(180deg, #ffffff, #ededed),
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.025) 0,
+      rgba(0, 0, 0, 0.025) 1px,
+      transparent 1px,
+      transparent 18px
+    );
+}
+
+.toggle-field__input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.toggle-field__input::after {
+  content: "";
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  opacity: 0;
+  transform: rotate(-45deg) translateY(-1px) scale(0.72);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.toggle-field__input:checked {
+  background: var(--ink);
+  border-color: var(--line);
+}
+
+.toggle-field__input:checked::after {
+  opacity: 1;
+  transform: rotate(-45deg) translateY(-1px) scale(1);
+}
+
+.toggle-field__input:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+.toggle-field__copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.toggle-field__copy strong {
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.toggle-field__copy small {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -641,6 +747,15 @@ textarea:focus-visible {
     min-height: 18px;
   }
 
+  .toggle-field__body {
+    gap: 10px;
+    padding: 9px 10px;
+  }
+
+  .toggle-field__copy small {
+    font-size: 10px;
+  }
+
   .field input,
   .textarea,
   .field-inline .button,
@@ -698,6 +813,14 @@ textarea:focus-visible {
   .meta-item span,
   .summary-label {
     font-size: 9px;
+  }
+
+  .toggle-field__copy strong {
+    font-size: 11px;
+  }
+
+  .toggle-field__copy small {
+    font-size: 10px;
   }
 }
 
